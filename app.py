@@ -53,9 +53,9 @@ def subir_csv():
             df = pd.read_csv(archivo, encoding=encoding or 'latin1', sep=',', skiprows=1, on_bad_lines='skip', index_col=False)
 
             # Filtra según la columna "Impresora" (ajusta el nombre de columna si es otro)
-            df_surco_hp = df[df['Impresora'].str.contains('HP', case=False, na=False) & df['Cliente'].str.contains('SURCO', case=False, na=False)]
-            df_surco_xerox = df[df['Impresora'].str.contains('XEROX', case=False, na=False) & df['Cliente'].str.contains('SURCO', case=False, na=False)]
-            df_san_isidro_epson = df[df['Impresora'].str.contains('EPSON', case=False, na=False) & df['Cliente'].str.contains('SAN ISIDRO', case=False, na=False)]
+            df_surco_hp = df[(df['Impresora'] == 'HP LJ300-400 color M351-M451 PCL 6') & (df['Cliente'].str.contains('SURCO', case=False, na=False))]
+            df_surco_xerox = df[df['Impresora'].str.contains('Xerox WorkCentre 3225', case=False, na=False) & df['Cliente'].str.contains('SURCO', case=False, na=False)]
+            df_san_isidro_epson = df[df['Impresora'].str.contains('L4260 Series(Network)', case=False, na=False) & df['Cliente'].str.contains('SAN ISIDRO', case=False, na=False)]
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -84,6 +84,14 @@ def subir_csv():
                 # Filtra y guarda para SURCO - HP
                 filtro_hp = df[df['Impresora'] == 'HP LJ300-400 color M351-M451 PCL 6']
                 filtro_hp.to_excel(writer, index=False, sheet_name='SURCO - HP')
+
+                # Filtra y guarda para SURCO - XEROX
+                filtro_hp = df[df['Impresora'] == 'Xerox WorkCentre 3225']
+                filtro_hp.to_excel(writer, index=False, sheet_name='SURCO - XEROX')
+
+                # Filtra y guarda para SAN ISIDRO - EPSON
+                filtro_hp = df[df['Impresora'] == 'L4260 Series(Network)']
+                filtro_hp.to_excel(writer, index=False, sheet_name='SAN ISIDRO - EPSON')
 
             output.seek(0)  # Reinicia el puntero del archivo
 
