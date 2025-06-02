@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Impresiones - Subir .csv</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light d-flex justify-content-center align-items-center vh-100">
+
+    <div class="card p-4 shadow-sm" style="width: 100%; max-width: 500px;">
+        <h4 class="text-center mb-4">Subir archivo CSV</h4>
+
+        <!-- Mensaje Flash (si se desea mostrar errores o confirmaciones) -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="alert alert-info">
+                    {% for category, message in messages %}
+                        {{ message }}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <!-- Formulario para subir archivo -->
+        <form method="POST" action="{{ url_for('subir_csv') }}" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="archivo" class="form-label">Selecciona un archivo CSV</label>
+                <input class="form-control" type="file" id="archivo" name="archivo" accept=".csv" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Generar Reporte De Excel</button>
+        </form>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar sesión</a>
+    </div>
+
+</body>
+</html>
