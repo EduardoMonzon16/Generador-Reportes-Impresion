@@ -1,11 +1,45 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask import send_file
+from mysql.connector import Error
+import mysql.connector
 import pandas as pd
 import io
 import chardet
+import tempfile
+import xlwings as xw
+import os
 
 app = Flask(__name__)
 app.secret_key = 'clave_secreta_para_sesiones'
+
+def conectar():
+    return mysql.connector.connect(
+        host='localhost',          
+        user='root',   
+        password='Universitario12#',
+        database='systembd',
+        port=3307 
+    )
+
+# Función para validar credenciales
+def validar_credenciales(usuario, password):
+    try:
+        conexion = conectar()
+        cursor = conexion.cursor()
+        sql = "SELECT Contraseña FROM usuarios WHERE Nombre = %s"
+        cursor.execute(sql, (usuario,))
+        resultado = cursor.fetchone()
+        cursor.close()
+        conexion.close()
+
+        if resultado:
+            contraseña_en_bd = resultado[0]
+            return contraseña_en_bd == password 
+        else:
+            return False
+    except Error as e:
+        print(f"Error en la conexión: {e}")
+        return False
 
 # Ruta principal: muestra el formulario de login
 @app.route('/', methods=['GET', 'POST'])
@@ -15,8 +49,7 @@ def login():
         usuario = request.form['usuario']
         password = request.form['password']
 
-        # Validación básica (sustituye por lógica real)
-        if usuario == 'admin' and password == '1234':
+        if validar_credenciales(usuario, password):
             session['usuario'] = usuario
             return redirect(url_for('reportes'))
         else:
@@ -36,6 +69,8 @@ def reportes():
         return redirect(url_for('login'))
     return render_template('reportes.html')
 
+
+
 @app.route('/subir_csv', methods=['GET', 'POST'])
 def subir_csv():
     if 'usuario' not in session:
@@ -52,55 +87,262 @@ def subir_csv():
 
             df = pd.read_csv(archivo, encoding=encoding or 'latin1', sep=',', skiprows=1, on_bad_lines='skip', index_col=False)
 
-            # Filtra según la columna "Impresora" (ajusta el nombre de columna si es otro)
-            df_surco_hp = df[(df['Impresora'] == 'HP LJ300-400 color M351-M451 PCL 6') & (df['Cliente'].str.contains('SURCO', case=False, na=False))]
-            df_surco_xerox = df[df['Impresora'].str.contains('Xerox WorkCentre 3225', case=False, na=False) & df['Cliente'].str.contains('SURCO', case=False, na=False)]
-            df_san_isidro_epson = df[df['Impresora'].str.contains('L4260 Series(Network)', case=False, na=False) & df['Cliente'].str.contains('SAN ISIDRO', case=False, na=False)]
+            # Agregar la columna "Impresiones" en la posición E (índice 4)
+            if len(df.columns) >= 4:  # Verificar que tengamos al menos 4 columnas
+                # Convertir las columnas C y D a numéricas, reemplazando valores no numéricos con 0
+                columna_c = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
+                columna_d = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
+                
+                # Calcular las impresiones (C * D)
+                impresiones = columna_c * columna_d
+                
+                # Crear un nuevo DataFrame con la columna "Impresiones" insertada en la posición E
+                df_nuevo = df.copy()
+                df_nuevo.insert(4, 'Impresiones', impresiones)
+                df = df_nuevo
+            
+            # Eliminar las columnas I, J, K, L (índices 8, 9, 10, 11) si existen
+            columnas_a_eliminar = []
+            if len(df.columns) > 8:  # Columna I
+                columnas_a_eliminar.append(8)
+            if len(df.columns) > 9:  # Columna J
+                columnas_a_eliminar.append(9)
+            if len(df.columns) > 10:  # Columna K
+                columnas_a_eliminar.append(10)
+            if len(df.columns) > 11:  # Columna L
+                columnas_a_eliminar.append(11)
+            
+            # Eliminar las columnas de forma descendente para no afectar los índices
+            for indice in reversed(columnas_a_eliminar):
+                df = df.drop(df.columns[indice], axis=1)
 
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Configuración de filtros
+            filtros_config = {
+                'SURCO - HP': {
+                    'impresora': 'HP LJ300-400 color M351-M451 PCL 6',
+                    'solo_impresora': True
+                },
+                'SURCO - XEROX': {
+                    'impresora': 'Xerox WorkCentre 3225',
+                    'solo_impresora': True
+                },
+                'SAN ISIDRO - EPSON': {
+                    'impresora': 'L4260 Series(Network)',
+                    'solo_impresora': True
+                }
+            }
+
+            # Crear archivo temporal para xlwings
+            temp_path = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False).name
+
+            # Primero crear el archivo Excel básico con pandas
+            with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+                # Hoja general
                 df.to_excel(writer, index=False, sheet_name='GENERAL')
-                df_surco_hp.to_excel(writer, index=False, sheet_name='SURCO - HP')
-                df_surco_xerox.to_excel(writer, index=False, sheet_name='SURCO - XEROX')
-                df_san_isidro_epson.to_excel(writer, index=False, sheet_name='SAN ISIDRO - EPSON')
-
-                # Aquí obtenemos el workbook y agregamos autofiltro a cada hoja
+                
+                # Diccionario para almacenar los DataFrames filtrados
+                dataframes_filtrados = {}
+                
+                # Hojas filtradas
+                for nombre_hoja, config in filtros_config.items():
+                    if config.get('solo_impresora', True):
+                        df_filtrado = df[df['Impresora'] == config['impresora']]
+                    else:
+                        df_filtrado = df[
+                            (df['Impresora'].str.contains(config['impresora'], case=False, na=False)) & 
+                            (df['Cliente'].str.contains(config['cliente'], case=False, na=False))
+                        ]
+                    
+                    df_filtrado.to_excel(writer, index=False, sheet_name=nombre_hoja)
+                    dataframes_filtrados[nombre_hoja] = df_filtrado
+                
+                # Aplicar formato y tablas
                 workbook = writer.book
+                
+                def ajustar_ancho_columnas(sheet, dataframe):
+                    for column in sheet.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        
+                        for cell in column:
+                            try:
+                                if cell.value:
+                                    length = len(str(cell.value))
+                                    if length > max_length:
+                                        max_length = length
+                            except:
+                                pass
+                        
+                        adjusted_width = max_length + 2
+                        sheet.column_dimensions[column_letter].width = adjusted_width
+                
+                def convertir_a_tabla(sheet, dataframe, nombre_tabla):
+                    from openpyxl.worksheet.table import Table, TableStyleInfo
+                    from openpyxl.styles import PatternFill, Font
+                    
+                    if dataframe.shape[0] > 0:
+                        max_row = dataframe.shape[0] + 1
+                        max_col = dataframe.shape[1]
+                        
+                        if max_col <= 26:
+                            end_col = chr(64 + max_col)
+                        else:
+                            end_col = chr(64 + (max_col - 1) // 26) + chr(65 + (max_col - 1) % 26)
+                        
+                        rango_tabla = f"A1:{end_col}{max_row}"
+                        
+                        tabla = Table(displayName=nombre_tabla, ref=rango_tabla)
+                        
+                        style = TableStyleInfo(
+                            name="TableStyleLight1",
+                            showFirstColumn=False,
+                            showLastColumn=False,
+                            showRowStripes=False,
+                            showColumnStripes=False
+                        )
+                        tabla.tableStyleInfo = style
+                        
+                        sheet.add_table(tabla)
+                        
+                        # Aplicar colores personalizados
+                        fill_header = PatternFill(start_color="4EA72E", end_color="4EA72E", fill_type="solid")
+                        font_header = Font(color="FFFFFF", bold=True)
+                        
+                        fill_green = PatternFill(start_color="DAF2D0", end_color="DAF2D0", fill_type="solid")
+                        fill_white = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+                        
+                        for col in range(1, max_col + 1):
+                            cell = sheet.cell(row=1, column=col)
+                            cell.fill = fill_header
+                            cell.font = font_header
+                        
+                        for row in range(2, max_row + 1):
+                            if row % 2 == 0:
+                                fill_to_use = fill_green
+                            else:
+                                fill_to_use = fill_white
+                                
+                            for col in range(1, max_col + 1):
+                                cell = sheet.cell(row=row, column=col)
+                                cell.fill = fill_to_use
+                
+                # Aplicar formato a todas las hojas
+                ajustar_ancho_columnas(workbook['GENERAL'], df)
+                convertir_a_tabla(workbook['GENERAL'], df, "TablaGeneral")
+                
+                for nombre_hoja, df_filtrado in dataframes_filtrados.items():
+                    ajustar_ancho_columnas(workbook[nombre_hoja], df_filtrado)
+                    nombre_tabla = nombre_hoja.replace(' ', '_').replace('-', '_')
+                    convertir_a_tabla(workbook[nombre_hoja], df_filtrado, f"Tabla{nombre_tabla}")
 
-                # Función para agregar autofiltro a una hoja
-                def agregar_autofiltro(hoja, df):
-                    # La primera fila es la de encabezados
-                    max_row = df.shape[0] + 1  # +1 por encabezado
-                    max_col = df.shape[1]
-                    # Rango de autofiltro (Ejemplo: A1 hasta la última columna y fila con datos)
-                    hoja.auto_filter.ref = f"A1:{chr(64 + max_col)}{max_row}"
+            # Ahora usar xlwings para crear la tabla dinámica
+            try:
+                app = xw.App(visible=False)
+                wb = app.books.open(temp_path)
+                
+                try:
+                    # Obtener la hoja GENERAL
+                    sheet_datos = wb.sheets['GENERAL']
+                    
+                    # Crear nueva hoja para tabla dinámica
+                    sheet_pivot = wb.sheets.add('TABLA DINAMICA')
+                    
+                    # Obtener el rango de datos
+                    data_range = sheet_datos.range('A1').expand()
+                    sheet_name = sheet_datos.name
+                    
+                    # Crear el rango completo para la tabla dinámica
+                    source_data = f"'{sheet_name}'!{data_range.address}"
+                    
+                    # Crear PivotCache
+                    pivot_cache = wb.api.PivotCaches().Create(
+                        SourceType=1,  # xlDatabase
+                        SourceData=source_data
+                    )
+                    
+                    # Crear PivotTable
+                    pivot_table = pivot_cache.CreatePivotTable(
+                        TableDestination=sheet_pivot.range('C3').api,
+                        TableName='TablaDinamica1'
+                    )
 
-                # Agregamos autofiltro a cada hoja creada
-                agregar_autofiltro(workbook['GENERAL'], df)
-                agregar_autofiltro(workbook['SURCO - HP'], df_surco_hp)
-                agregar_autofiltro(workbook['SURCO - XEROX'], df_surco_xerox)
-                agregar_autofiltro(workbook['SAN ISIDRO - EPSON'], df_san_isidro_epson)
+                    # Obtener el rango de la tabla dinámica
+                    pivot_range = pivot_table.TableRange2
+                    
+                    # Aplicar fuente Calibri 14 a toda la tabla dinámica
+                    pivot_range.Font.Name = "Calibri"
+                    pivot_range.Font.Size = 14
 
-                # Filtra y guarda para SURCO - HP
-                filtro_hp = df[df['Impresora'] == 'HP LJ300-400 color M351-M451 PCL 6']
-                filtro_hp.to_excel(writer, index=False, sheet_name='SURCO - HP')
+                    # Aplicar estilo de tabla dinámica predefinido "Verde claro, Estilo de tabla dinámica claro 11"
+                    pivot_table.TableStyle2 = "PivotStyleLight11"
+                    
+                    # Autoajustar el ancho de las columnas de la tabla dinámica
+                    pivot_range.Columns.AutoFit()
+                    
+                    # Autoajustar la altura de las filas de la tabla dinámica
+                    pivot_range.Rows.AutoFit()
+                    
+                    # Configurar campos de la tabla dinámica
+                    # Agregar 'Impresora' como campo de fila
+                    pivot_table.PivotFields('Impresora').Orientation = 1  # xlRowField
+                    pivot_table.PivotFields('Impresora').Position = 1
+                    
+                    # Agregar 'Usuario' como campo de fila
+                    pivot_table.PivotFields('Usuario').Orientation = 1  # xlRowField
+                    pivot_table.PivotFields('Usuario').Position = 2
+                    
+                    # Agregar 'Impresiones' como campo de valor
+                    data_field = pivot_table.AddDataField(
+                        pivot_table.PivotFields('Impresiones'),
+                        'Suma de Impresiones',
+                        -4157  # xlSum
+                    )
+                    
+                    # Opcional: Configurar formato de números
+                    data_field.NumberFormat = "#,##0"
+                    
+                    # Opcional: Expandir todos los campos
+                    pivot_table.PivotFields('Impresora').ShowDetail = True
+                    
+                    # Guardar el archivo
+                    wb.save()
+                    
+                except Exception as e:
+                    print(f"Error al crear tabla dinámica: {e}")
+                    # Si falla la tabla dinámica, al menos devolver el archivo básico
+                    pass
+                finally:
+                    wb.close()
+                    app.quit()
+                    
+            except Exception as e:
+                print(f"Error con xlwings: {e}")
+                # Si xlwings falla completamente, continuar sin tabla dinámica
+                pass
 
-                # Filtra y guarda para SURCO - XEROX
-                filtro_hp = df[df['Impresora'] == 'Xerox WorkCentre 3225']
-                filtro_hp.to_excel(writer, index=False, sheet_name='SURCO - XEROX')
-
-                # Filtra y guarda para SAN ISIDRO - EPSON
-                filtro_hp = df[df['Impresora'] == 'L4260 Series(Network)']
-                filtro_hp.to_excel(writer, index=False, sheet_name='SAN ISIDRO - EPSON')
-
-            output.seek(0)  # Reinicia el puntero del archivo
-
-            # Devuelve el archivo para descarga
-            return send_file(output,
-                             download_name="reporte_generado.xlsx",
-                             as_attachment=True,
-                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
+            # Leer el archivo final y devolverlo para descarga
+            try:
+                with open(temp_path, 'rb') as f:
+                    output_data = f.read()
+                
+                # Crear BytesIO para enviar el archivo
+                output = io.BytesIO(output_data)
+                output.seek(0)
+                
+                # Limpiar archivo temporal
+                os.unlink(temp_path)
+                
+                return send_file(
+                    output,
+                    download_name="reporte_generado.xlsx",
+                    as_attachment=True,
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                
+            except Exception as e:
+                print(f"Error al enviar archivo: {e}")
+                flash('Error al generar el archivo final', 'error')
+                
         else:
             flash('Por favor selecciona un archivo CSV válido', 'error')
 
