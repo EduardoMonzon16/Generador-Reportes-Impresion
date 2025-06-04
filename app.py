@@ -193,38 +193,44 @@ def subir_csv():
                         
                         tabla = Table(displayName=nombre_tabla, ref=rango_tabla)
                         
+                        # Usar el mismo estilo que la tabla dinámica (TableStyleLight11)
                         style = TableStyleInfo(
-                            name="TableStyleLight1",
+                            name="TableStyleLight11",
                             showFirstColumn=False,
                             showLastColumn=False,
-                            showRowStripes=False,
+                            showRowStripes=True,
                             showColumnStripes=False
                         )
                         tabla.tableStyleInfo = style
                         
                         sheet.add_table(tabla)
                         
-                        # Aplicar colores personalizados
-                        fill_header = PatternFill(start_color="4EA72E", end_color="4EA72E", fill_type="solid")
-                        font_header = Font(color="FFFFFF", bold=True)
-                        
-                        fill_green = PatternFill(start_color="DAF2D0", end_color="DAF2D0", fill_type="solid")
-                        fill_white = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-                        
-                        for col in range(1, max_col + 1):
-                            cell = sheet.cell(row=1, column=col)
-                            cell.fill = fill_header
-                            cell.font = font_header
-                        
-                        for row in range(2, max_row + 1):
-                            if row % 2 == 0:
-                                fill_to_use = fill_green
-                            else:
-                                fill_to_use = fill_white
-                                
+                        # Aplicar fuente Calibri 14 a toda la tabla (igual que la tabla dinámica)
+                        for row in range(1, max_row + 1):
                             for col in range(1, max_col + 1):
                                 cell = sheet.cell(row=row, column=col)
-                                cell.fill = fill_to_use
+                                cell.font = Font(name="Calibri", size=14)
+                        
+                        # Autoajustar columnas y filas (igual que la tabla dinámica)
+                        for column in sheet.columns:
+                            max_length = 0
+                            column_letter = column[0].column_letter
+                            
+                            for cell in column:
+                                try:
+                                    if cell.value:
+                                        length = len(str(cell.value))
+                                        if length > max_length:
+                                            max_length = length
+                                except:
+                                    pass
+                            
+                            adjusted_width = max_length + 2
+                            sheet.column_dimensions[column_letter].width = adjusted_width
+                        
+                        # Autoajustar altura de filas
+                        for row in sheet.iter_rows():
+                            sheet.row_dimensions[row[0].row].height = None  # Auto height
                 
                 # Aplicar formato a todas las hojas
                 ajustar_ancho_columnas(workbook['GENERAL'], df)
