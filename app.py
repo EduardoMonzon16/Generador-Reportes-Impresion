@@ -75,9 +75,20 @@ def reportes():
 def subir_csv():
     if 'usuario' not in session:
         return redirect(url_for('login'))
+    
+    if request.method == 'GET':
+        return render_template('reportes.html')
 
     if request.method == 'POST':
         archivo = request.files['archivo']
+
+        if not archivo or archivo.filename == '':
+            flash('No se ha seleccionado ningún archivo CSV', 'error')
+            return redirect(url_for('index'))
+
+        if not archivo.filename.lower().endswith('.csv'):
+            flash('Por favor, selecciona un archivo CSV válido (.csv)', 'error')
+            return render_template('reportes.html')
 
         if archivo and archivo.filename.endswith('.csv'):
             data = archivo.read()
@@ -86,6 +97,30 @@ def subir_csv():
             archivo.seek(0)  # vuelve al inicio del archivo
 
             df = pd.read_csv(archivo, encoding=encoding or 'latin1', sep=',', skiprows=1, on_bad_lines='skip', index_col=False)
+
+            # Definir los encabezados requeridos
+            encabezados_requeridos = [
+                'Hora', 'Usuario', 'Páginas', 'Copias', 'Impresora', 
+                'Nombre Documento', 'Cliente', 'Formato Papel', 'Idioma',
+                'Altura', 'Anchura', 'Frente/reverso', 'Escala de grises', 'Formato'
+            ]
+            
+            # Normalizar encabezados (quitar espacios y convertir a minúsculas para comparación)
+            def normalizar_encabezado(header):
+                return str(header).strip().lower()
+            
+            # Verificar si todos los encabezados requeridos están presentes
+            encabezados_encontrados = [normalizar_encabezado(col) for col in df.columns.tolist()]
+            encabezados_requeridos_norm = [normalizar_encabezado(header) for header in encabezados_requeridos]
+            
+            encabezados_faltantes = [
+                encabezados_requeridos[i] for i, header_norm in enumerate(encabezados_requeridos_norm) 
+                if header_norm not in encabezados_encontrados
+            ]
+            
+            if encabezados_faltantes:
+                flash(f'Error: No se encuentran los datos requeridos. Faltan: {", ".join(encabezados_faltantes)}', 'error')
+                return render_template('reportes.html')
 
             # Agregar la columna "Impresiones" en la posición E (índice 4)
             if len(df.columns) >= 4:  # Verificar que tengamos al menos 4 columnas
@@ -243,8 +278,8 @@ def subir_csv():
 
             # Ahora usar xlwings para crear la tabla dinámica
             try:
-                app = xw.App(visible=False)
-                wb = app.books.open(temp_path)
+                app_xw = xw.App(visible=False)
+                wb = app_xw.books.open(temp_path)
                 
                 try:
                     # Obtener la hoja GENERAL
@@ -319,7 +354,7 @@ def subir_csv():
                     pass
                 finally:
                     wb.close()
-                    app.quit()
+                    app_xw.quit()
                     
             except Exception as e:
                 print(f"Error con xlwings: {e}")
