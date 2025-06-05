@@ -56,26 +56,16 @@
 
         <!-- Contenedor de mensajes flash mejorado -->
         <div id="flashMessages" class="flash-messages-container">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show flash-message" data-auto-dismiss="true">
-                            <i class="bi bi-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' if category == 'success' else 'info-circle' }} me-2"></i>
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
+            <!-- Los mensajes aparecerán aquí dinámicamente -->
         </div>
         
         <!-- Formulario -->
-        <form id="uploadForm" method="POST" action="{{ url_for('subir_csv') }}" enctype="multipart/form-data">
+        <form id="uploadForm" method="POST" enctype="multipart/form-data">
             <!-- Zona de arrastrar y soltar -->
             <div class="file-drop-zone mb-3" id="dropZone">
                 <i class="bi bi-cloud-upload fs-1"></i>
                 <p class="mb-2">Arrastra tu archivo CSV aquí o haz clic para seleccionar</p>
-                <input class="form-control d-none" type="file" id="archivo" name="archivo" accept=".csv" required>
+                <input class="form-control d-none" type="file" id="archivo" name="archivo" accept=".csv">
             </div>
 
             <!-- Información del archivo seleccionado -->
@@ -139,15 +129,6 @@
         class FlashMessagesManager {
             constructor() {
                 this.container = document.getElementById('flashMessages');
-                this.initializeExistingMessages();
-            }
-
-            // Inicializar mensajes existentes del servidor
-            initializeExistingMessages() {
-                const existingMessages = this.container.querySelectorAll('.flash-message[data-auto-dismiss="true"]');
-                existingMessages.forEach(message => {
-                    this.setupAutoDismiss(message);
-                });
             }
 
             // Crear nuevo mensaje
@@ -242,7 +223,7 @@
         // Inicializar gestor de mensajes
         const flashManager = new FlashMessagesManager();
 
-        // Función para mostrar mensajes (ahora usa el gestor)
+        // Función para mostrar mensajes
         function showMessage(message, type = 'info', autoDismiss = true) {
             return flashManager.create(message, type, autoDismiss);
         }
@@ -331,17 +312,34 @@
         // Event listener para remover archivo
         removeFileBtn.addEventListener('click', hideFileInfo);
 
-        // Event listener para envío del formulario
+        // Event listener para envío del formulario - CORREGIDO
         uploadForm.addEventListener('submit', (e) => {
             e.preventDefault(); // Siempre prevenir envío normal
             
-            const file = fileInput.files[0];
-            if (!file) {
-                showMessage('Por favor selecciona un archivo CSV', 'danger');
-                return;
+            // VALIDACIÓN CRÍTICA: Verificar si hay archivo seleccionado
+            if (!fileInput.files || fileInput.files.length === 0) {
+                showMessage('Por favor, selecciona un archivo CSV antes de continuar', 'danger', false);
+                
+                // Resaltar la zona de drop para llamar la atención
+                dropZone.style.border = '2px solid #e53e3e';
+                dropZone.style.backgroundColor = '#fed7d7';
+                
+                // Quitar el resaltado después de 3 segundos
+                setTimeout(() => {
+                    dropZone.style.border = '2px dashed #cbd5e0';
+                    dropZone.style.backgroundColor = '#f8fafc';
+                }, 3000);
+                
+                return; // Detener la ejecución aquí
             }
 
-            // Marcar que el formulario fue enviado
+            // Validar nuevamente el archivo seleccionado
+            const file = fileInput.files[0];
+            if (!validateCSVFile(file)) {
+                return; // Si el archivo no es válido, detener aquí
+            }
+            
+            // Si llegamos aquí, el archivo es válido - continuar con el envío
             formSubmitted = true;
             
             // Mostrar estado de carga
@@ -471,6 +469,7 @@
                 body: formData
             })
             .then(response => {
+                // Verificar si la respuesta es exitosa
                 if (response.ok) {
                     // Verificar si es una descarga de archivo
                     const contentType = response.headers.get('content-type');
@@ -501,53 +500,51 @@
                             }, 2000);
                         });
                     } else {
-                        // Es una respuesta HTML - verificar si hay errores o éxito
+                        // Respuesta HTML o texto - podría ser redirect o página
                         return response.text().then(html => {
-                            // Verificar si hay mensajes de error sobre encabezados
-                            if (html.includes('alert-danger') || html.includes('encabezados') || 
-                                html.includes('columnas') || html.includes('formato incorrecto') ||
-                                html.includes('headers') || html.includes('CSV inválido')) {
-                                
-                                // Extraer el mensaje de error del HTML
-                                const errorMessage = extractErrorMessage(html);
-                                handleProcessingError(errorMessage || 'El archivo CSV no tiene el formato correcto. Verifica que contenga todos los encabezados requeridos.');
-                                
-                            } else if (html.includes('alert-success') || html.includes('Reporte generado')) {
-                                // Proceso exitoso pero sin descarga directa
-                                completeProgress();
-                                showMessage('¡Reporte generado exitosamente!', 'success');
-                                setTimeout(() => {
-                                    resetForm();
-                                }, 2000);
-                                
-                            } else {
-                                // Respuesta inesperada - podría ser redirección
-                                window.location.reload();
-                            }
+                            // Si es HTML, podría ser una redirección exitosa
+                            window.location.reload();
                         });
                     }
                 } else {
-                    // Error HTTP del servidor
-                    return response.text().then(text => {
-                        let errorMessage = 'Error del servidor';
-                        
-                        // Intentar extraer mensaje de error más específico
-                        if (response.status === 400) {
-                            errorMessage = 'Archivo CSV inválido o formato incorrecto';
-                        } else if (response.status === 413) {
-                            errorMessage = 'El archivo es demasiado grande';
-                        } else if (response.status === 422) {
-                            errorMessage = 'El archivo CSV no contiene los encabezados requeridos';
-                        } else if (response.status >= 500) {
-                            errorMessage = 'Error interno del servidor. Intenta nuevamente.';
-                        }
-                        
-                        handleProcessingError(errorMessage);
-                    });
+                    // Error HTTP - intentar obtener respuesta JSON primero
+                    const contentType = response.headers.get('content-type');
+                    
+                    if (contentType && contentType.includes('application/json')) {
+                        // Es una respuesta JSON de error
+                        return response.json().then(data => {
+                            console.log('Error JSON recibido:', data);
+                            
+                            let errorMessage = data.message || 'Error del servidor';
+                            
+                            // Manejar diferentes tipos de error
+                            if (data.type === 'missing_headers' && data.missing_headers) {
+                                errorMessage = `Error: Faltan los siguientes encabezados en el archivo CSV: ${data.missing_headers.join(', ')}`;
+                                
+                                // Expandir automáticamente la lista de encabezados
+                                setTimeout(() => {
+                                    const collapseElement = document.getElementById('collapseHeaders');
+                                    if (collapseElement && !collapseElement.classList.contains('show')) {
+                                        const bsCollapse = new bootstrap.Collapse(collapseElement, {
+                                            show: true
+                                        });
+                                    }
+                                }, 500);
+                            }
+                            
+                            handleProcessingError(errorMessage);
+                        }).catch(jsonError => {
+                            console.error('Error al parsear JSON:', jsonError);
+                            handleGenericHttpError(response.status);
+                        });
+                    } else {
+                        // No es JSON, manejar como error HTTP genérico
+                        handleGenericHttpError(response.status);
+                    }
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
+                console.error('Error de red:', error);
                 let errorMessage = 'Error de conexión. Verifica tu conexión a internet e intenta nuevamente.';
                 
                 if (error.name === 'TypeError') {
@@ -559,49 +556,82 @@
                 handleProcessingError(errorMessage);
             });
         }
-        
-        // Función para extraer mensaje de error del HTML
-        function extractErrorMessage(html) {
-            try {
-                // Crear un parser temporal para extraer el mensaje
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
+
+        // Nueva función para manejar errores HTTP genéricos
+        function handleGenericHttpError(status) {
+            let errorMessage = 'Error del servidor';
+            
+            if (status === 400) {
+                errorMessage = 'Archivo CSV inválido o formato incorrecto';
+            } else if (status === 413) {
+                errorMessage = 'El archivo es demasiado grande';
+            } else if (status === 422) {
+                errorMessage = 'El archivo CSV no contiene los encabezados requeridos. Verifica que el archivo tenga la estructura correcta.';
                 
-                // Buscar alerts de error
-                const errorAlert = doc.querySelector('.alert-danger');
-                if (errorAlert) {
-                    // Extraer solo el texto, sin íconos
-                    let message = errorAlert.textContent || errorAlert.innerText || '';
-                    message = message.replace(/^\s*[×✕]\s*/, '').trim(); // Remover botones de cerrar
-                    return message;
-                }
-                
-                return null;
-            } catch (e) {
-                return null;
+                // Expandir la lista de encabezados para errores 422
+                setTimeout(() => {
+                    const collapseElement = document.getElementById('collapseHeaders');
+                    if (collapseElement && !collapseElement.classList.contains('show')) {
+                        const bsCollapse = new bootstrap.Collapse(collapseElement, {
+                            show: true
+                        });
+                    }
+                }, 500);
+            } else if (status >= 500) {
+                errorMessage = 'Error interno del servidor. Intenta nuevamente.';
             }
+            
+            handleProcessingError(errorMessage);
         }
-        
-        // Función para manejar errores de procesamiento
+
+        // Función mejorada para manejar errores de procesamiento
         function handleProcessingError(errorMessage) {
+            console.log('Manejando error:', errorMessage);
+            
             clearProgressTimers();
             hideLoadingState();
             
             // Mostrar mensaje de error específico
             showMessage(errorMessage, 'danger', false); // No auto-dismiss para errores importantes
             
-            // Mostrar la lista de encabezados requeridos si es error de formato
-            if (errorMessage.toLowerCase().includes('encabezados') || 
-                errorMessage.toLowerCase().includes('formato') ||
-                errorMessage.toLowerCase().includes('columnas')) {
+            // Verificar si es un error relacionado con encabezados
+            const isHeaderError = errorMessage.toLowerCase().includes('encabezados') || 
+                                errorMessage.toLowerCase().includes('formato') ||
+                                errorMessage.toLowerCase().includes('columnas') ||
+                                errorMessage.toLowerCase().includes('faltan') ||
+                                errorMessage.toLowerCase().includes('datos requeridos');
+            
+            if (isHeaderError) {
+                console.log('Error de encabezados detectado, expandiendo lista...');
                 
                 // Expandir automáticamente la lista de encabezados
-                const collapseElement = document.getElementById('collapseHeaders');
-                if (collapseElement && !collapseElement.classList.contains('show')) {
-                    const bsCollapse = new bootstrap.Collapse(collapseElement, {
-                        show: true
-                    });
-                }
+                setTimeout(() => {
+                    const collapseElement = document.getElementById('collapseHeaders');
+                    const toggleButton = document.querySelector('[data-bs-target="#collapseHeaders"]');
+                    
+                    if (collapseElement && !collapseElement.classList.contains('show')) {
+                        // Usar Bootstrap para expandir
+                        const bsCollapse = new bootstrap.Collapse(collapseElement, {
+                            show: true
+                        });
+                        
+                        // También actualizar el botón
+                        if (toggleButton) {
+                            toggleButton.setAttribute('aria-expanded', 'true');
+                        }
+                    }
+                }, 500);
+                
+                // Scroll suave hacia la alerta de encabezados
+                setTimeout(() => {
+                    const alertElement = document.querySelector('.alert-warning');
+                    if (alertElement) {
+                        alertElement.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'center' 
+                        });
+                    }
+                }, 1000);
             }
             
             formSubmitted = false;
@@ -649,6 +679,7 @@
                 clearProgressTimers();
             }
         });
+
         window.addEventListener('dragover', (e) => e.preventDefault());
         window.addEventListener('drop', (e) => e.preventDefault());
 
