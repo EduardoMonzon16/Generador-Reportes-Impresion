@@ -211,3 +211,7 @@ h4.text-center {
 .loading .spinner-border {
     display: inline-block;
 }
+
+.alert:not(.flash-message):not(:first-child) {
+    display: none !important;
+}
