@@ -2,7 +2,7 @@
 import os
 import io
 import tempfile
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, send_file
 import mysql.connector
 from mysql.connector import Error
 import pandas as pd
