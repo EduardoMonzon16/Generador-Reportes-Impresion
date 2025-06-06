@@ -1,3 +1,4 @@
+// Elementos del DOM
 const uploadForm = document.getElementById('uploadForm');
 const fileInput = document.getElementById('archivo');
 const dropZone = document.getElementById('dropZone');
@@ -10,21 +11,39 @@ const progressContainer = document.querySelector('.progress-container');
 const progressBar = document.querySelector('.progress-bar');
 const logoutBtn = document.getElementById('logoutBtn');
 
-// Variables para control de progreso
+const cancelBtn = document.getElementById('cancelBtn');
+
+// Constantes de configuración
+const CONFIG = {
+    MAX_FILE_SIZE: 16 * 1024 * 1024, // 16MB
+    SAFETY_TIMEOUT: 30000, // 30 segundos
+    PROGRESS_INTERVAL: 300,
+    AUTO_DISMISS_DELAYS: {
+        success: 5000,
+        info: 5000,
+        warning: 4000,
+        danger: 4000
+    }
+};
+
+// Variables para control de progreso Y CANCELACIÓN
 let progressInterval = null;
 let safetyTimeout = null;
 let formSubmitted = false;
+// ** NUEVAS VARIABLES PARA CANCELACIÓN **
+let currentRequest = null;
+let abortController = null;
 
-// Clase para manejar mensajes flash
+// Clase mejorada para manejar mensajes flash
 class FlashMessagesManager {
     constructor() {
         this.container = document.getElementById('flashMessages');
-        this.persistentMessages = new Set(); // Para rastrear mensajes persistentes
+        this.persistentMessages = new Set();
+        this.activeTimers = new Map(); // Rastrear timers activos
     }
 
     // Crear nuevo mensaje
     create(message, type = 'info', autoDismiss = true, persistent = false) {
-        // Si no es persistente, limpiar solo mensajes no persistentes
         if (!persistent) {
             this.clearNonPersistent();
         }
@@ -32,6 +51,8 @@ class FlashMessagesManager {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show flash-message`;
         alertDiv.setAttribute('data-type', type);
+        alertDiv.setAttribute('role', 'alert'); // Mejora de accesibilidad
+        
         if (autoDismiss && !persistent) {
             alertDiv.setAttribute('data-auto-dismiss', 'true');
         }
@@ -42,16 +63,15 @@ class FlashMessagesManager {
 
         const iconClass = this.getIconClass(type);
         alertDiv.innerHTML = `
-            <i class="bi bi-${iconClass} me-2"></i>
+            <i class="bi bi-${iconClass} me-2" aria-hidden="true"></i>
             ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar mensaje"></button>
         `;
 
         this.container.appendChild(alertDiv);
 
-        // Configurar auto-dismiss solo si no es persistente
         if (autoDismiss && !persistent) {
-            const delay = type === 'danger' ? 4000 : 5000;
+            const delay = CONFIG.AUTO_DISMISS_DELAYS[type] || CONFIG.AUTO_DISMISS_DELAYS.info;
             this.setupAutoDismiss(alertDiv, delay);
         }
 
@@ -74,37 +94,45 @@ class FlashMessagesManager {
         return icons[type] || 'info-circle';
     }
 
-    // Configurar auto-dismiss para un mensaje
-    setupAutoDismiss(alertElement, delay = 5000) {
-        // Para mensajes de advertencia (warning), usar 4 segundos
-        if (alertElement.getAttribute('data-type') === 'warning') {
-            delay = 4000;
-        }
-        // Para mensajes de error (danger), usar 4 segundos
-        else if (alertElement.getAttribute('data-type') === 'danger') {
-            delay = 4000;
-        }
-        
+    // Configurar auto-dismiss mejorado para un mensaje
+    setupAutoDismiss(alertElement, delay) {
         const timer = setTimeout(() => {
             this.dismiss(alertElement);
         }, delay);
 
+        // Guardar referencia del timer
+        this.activeTimers.set(alertElement, timer);
+
+        let pausedTimer = null;
+
         // Pausar el timer al hacer hover
         alertElement.addEventListener('mouseenter', () => {
-            clearTimeout(timer);
+            const currentTimer = this.activeTimers.get(alertElement);
+            if (currentTimer) {
+                clearTimeout(currentTimer);
+                this.activeTimers.delete(alertElement);
+            }
         });
 
         // Reanudar el timer al salir del hover
         alertElement.addEventListener('mouseleave', () => {
-            setTimeout(() => {
+            pausedTimer = setTimeout(() => {
                 this.dismiss(alertElement);
             }, 2000);
+            this.activeTimers.set(alertElement, pausedTimer);
         });
     }
 
-    // Descartar mensaje
+    // Descartar mensaje mejorado
     dismiss(alertElement) {
         if (alertElement && alertElement.parentNode) {
+            // Limpiar timer asociado
+            const timer = this.activeTimers.get(alertElement);
+            if (timer) {
+                clearTimeout(timer);
+                this.activeTimers.delete(alertElement);
+            }
+
             // Remover de conjunto de persistentes si existe
             this.persistentMessages.delete(alertElement);
             
@@ -121,7 +149,6 @@ class FlashMessagesManager {
     clearByType(type) {
         const messages = this.container.querySelectorAll(`[data-type="${type}"]`);
         messages.forEach(message => {
-            // Solo eliminar si no es persistente
             if (!message.hasAttribute('data-persistent')) {
                 this.dismiss(message);
             }
@@ -153,6 +180,12 @@ class FlashMessagesManager {
             this.persistentMessages.add(alertElement);
         }
     }
+
+    // Método para limpiar todos los timers
+    clearAllTimers() {
+        this.activeTimers.forEach(timer => clearTimeout(timer));
+        this.activeTimers.clear();
+    }
 }
 
 // Inicializar gestor de mensajes
@@ -170,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Marcar el primer mensaje como persistente
                 alert.classList.add('flash-message');
                 alert.setAttribute('data-persistent', 'true');
+                alert.setAttribute('role', 'alert');
                 flashManager.persistentMessages.add(alert);
             } else {
                 // Eliminar inmediatamente otros mensajes sin mostrarlos
@@ -199,16 +233,24 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Función para validar archivo CSV
+// Función mejorada para validar archivo CSV
 function validateCSVFile(file) {
+    // Validar extensión
     if (!file.name.toLowerCase().endsWith('.csv')) {
         showMessage('Por favor selecciona un archivo CSV válido (.csv)', 'danger');
         return false;
     }
     
-    const maxSize = 16 * 1024 * 1024; // 16MB
-    if (file.size > maxSize) {
-        showMessage('El archivo es demasiado grande. Tamaño máximo permitido: 16MB', 'danger');
+    // Validar tamaño
+    if (file.size > CONFIG.MAX_FILE_SIZE) {
+        const maxSizeMB = CONFIG.MAX_FILE_SIZE / (1024 * 1024);
+        showMessage(`El archivo es demasiado grande. Tamaño máximo permitido: ${maxSizeMB}MB`, 'danger');
+        return false;
+    }
+    
+    // Validar que no esté vacío
+    if (file.size === 0) {
+        showMessage('El archivo está vacío. Por favor selecciona un archivo válido.', 'danger');
         return false;
     }
     
@@ -274,7 +316,58 @@ fileInput.addEventListener('change', (e) => {
 // Event listener para remover archivo
 removeFileBtn.addEventListener('click', hideFileInfo);
 
-// Event listener para envío del formulario
+function showLoadingState() {
+    // Mostrar botones de carga
+    if (cancelBtn) {
+        cancelBtn.classList.remove('d-none');
+    }
+    
+    // Estado original si no hay botones separados
+    const spinner = submitBtn.querySelector('.spinner-border');
+    const buttonText = submitBtn.querySelector('.button-text');
+    
+    if (spinner) spinner.style.display = 'inline-block';
+    if (buttonText) buttonText.textContent = 'Procesando archivo...';
+    submitBtn.disabled = true;
+}
+
+
+function hideLoadingState() {
+    if (cancelBtn) {
+        cancelBtn.classList.add('d-none');
+    }
+    
+    // Estado original
+    const spinner = submitBtn.querySelector('.spinner-border');
+    const buttonText = submitBtn.querySelector('.button-text');
+    
+    if (spinner) spinner.style.display = 'none';
+    if (buttonText) buttonText.textContent = 'Generar reporte de impresiones';
+    submitBtn.disabled = false;
+    progressContainer.style.display = 'none';
+    progressBar.style.width = '0%';
+    
+    // Limpiar intervalos y timeouts
+    clearProgressTimers();
+}
+
+// ** EVENT LISTENER PARA CANCELACIÓN **
+if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+        if (abortController && formSubmitted) {
+            // Cancelar la petición
+            abortController.abort();
+            
+            // Restaurar estado
+            hideLoadingState();
+            showLoadingState();
+            formSubmitted = false;
+            console.log('Generación cancelada por el usuario');
+        }
+    });
+}
+
+// Event listener para envío del formulario - MODIFICADO
 uploadForm.addEventListener('submit', (e) => {
     e.preventDefault();
     
@@ -317,31 +410,6 @@ uploadForm.addEventListener('submit', (e) => {
     submitFormWithAjax();
 });
 
-// Función para mostrar estado de carga
-function showLoadingState() {
-    const spinner = submitBtn.querySelector('.spinner-border');
-    const buttonText = submitBtn.querySelector('.button-text');
-    
-    spinner.style.display = 'inline-block';
-    buttonText.textContent = 'Procesando archivo...';
-    submitBtn.disabled = true;
-}
-
-// Función para ocultar estado de carga
-function hideLoadingState() {
-    const spinner = submitBtn.querySelector('.spinner-border');
-    const buttonText = submitBtn.querySelector('.button-text');
-    
-    spinner.style.display = 'none';
-    buttonText.textContent = 'Generar reporte de impresiones';
-    submitBtn.disabled = false;
-    progressContainer.style.display = 'none';
-    progressBar.style.width = '0%';
-    
-    // Limpiar intervalos y timeouts
-    clearProgressTimers();
-}
-
 // Función para limpiar timers de progreso
 function clearProgressTimers() {
     if (progressInterval) {
@@ -354,7 +422,7 @@ function clearProgressTimers() {
     }
 }
 
-// Función para iniciar simulación de progreso
+// Función mejorada para iniciar simulación de progreso
 function startProgressSimulation() {
     let progress = 0;
     let currentPhase = 0;
@@ -369,7 +437,24 @@ function startProgressSimulation() {
     
     const buttonText = submitBtn.querySelector('.button-text');
     
+    // Agregar aria-live para accesibilidad
+    if (buttonText && !buttonText.hasAttribute('aria-live')) {
+        buttonText.setAttribute('aria-live', 'polite');
+    }
+    
+    // Configurar barra de progreso con atributos ARIA
+    progressBar.setAttribute('role', 'progressbar');
+    progressBar.setAttribute('aria-valuenow', '0');
+    progressBar.setAttribute('aria-valuemin', '0');
+    progressBar.setAttribute('aria-valuemax', '100');
+    
     progressInterval = setInterval(() => {
+        // ** VERIFICAR SI FUE CANCELADO **
+        if (!formSubmitted) {
+            clearInterval(progressInterval);
+            return;
+        }
+        
         if (currentPhase < phases.length) {
             const phase = phases[currentPhase];
             
@@ -379,7 +464,7 @@ function startProgressSimulation() {
             
             // Actualizar mensaje si es necesario
             if (Math.floor(progress) >= phase.end - 2) {
-                buttonText.textContent = phase.message;
+                if (buttonText) buttonText.textContent = phase.message;
                 if (progress >= phase.end) {
                     currentPhase++;
                 }
@@ -390,18 +475,19 @@ function startProgressSimulation() {
         }
         
         progressBar.style.width = progress + '%';
+        progressBar.setAttribute('aria-valuenow', Math.floor(progress));
         
-    }, 300);
+    }, CONFIG.PROGRESS_INTERVAL);
 
-    // Timeout de seguridad
+    // Timeout de seguridad mejorado
     safetyTimeout = setTimeout(() => {
         if (formSubmitted && submitBtn.disabled) {
             clearProgressTimers();
             hideLoadingState();
-            showMessage('El proceso está tomando más tiempo del esperado. Por favor, verifica tu conexión e intenta nuevamente.', 'warning');
+            showMessage('El proceso está tomando más tiempo del esperado. Por favor, intenta nuevamente.', 'warning');
             formSubmitted = false;
         }
-    }, 45000);
+    }, CONFIG.SAFETY_TIMEOUT);
 }
 
 // Event listener para botón de logout  
@@ -412,8 +498,8 @@ logoutBtn.addEventListener('click', (e) => {
         const spinner = logoutBtn.querySelector('.spinner-border');
         const logoutText = logoutBtn.querySelector('.logout-text');
         
-        spinner.style.display = 'inline-block';
-        logoutText.textContent = 'Cerrando sesión...';
+        if (spinner) spinner.style.display = 'inline-block';
+        if (logoutText) logoutText.textContent = 'Cerrando sesión...';
         logoutBtn.disabled = true;
         
         setTimeout(() => {
@@ -422,7 +508,7 @@ logoutBtn.addEventListener('click', (e) => {
     }
 });
 
-// Función para extraer mensajes flash del HTML - MEJORADA
+// Función para extraer mensajes flash del HTML
 function extractFlashMessagesFromHTML(html) {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
@@ -452,15 +538,94 @@ function extractFlashMessagesFromHTML(html) {
     return messages;
 }
 
-// Función mejorada para enviar formulario con AJAX
+// Función auxiliar para descargar blob
+function downloadBlob(blob, contentDisposition) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = extractFilenameFromHeader(contentDisposition) || 'reporte_impresiones.xlsx';
+    
+    // Mejora de accesibilidad
+    a.setAttribute('aria-label', `Descargar ${a.download}`);
+    
+    document.body.appendChild(a);
+    a.click();
+    
+    // Cleanup inmediato
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+// Función para manejar respuesta HTML
+function handleHTMLResponse(response) {
+    return response.text().then(html => {
+        console.log('HTML recibido:', html.substring(0, 500) + '...');
+        
+        const flashMessages = extractFlashMessagesFromHTML(html);
+        console.log('Mensajes flash extraídos:', flashMessages);
+        
+        if (flashMessages.length > 0) {
+            const firstMessage = flashMessages[0];
+            handleProcessingError(firstMessage.message, firstMessage.type);
+        } else {
+            window.location.reload();
+        }
+    });
+}
+
+// Función para manejar respuesta de error
+function handleErrorResponse(response) {
+    return response.text().then(html => {
+        console.log('HTML de error recibido:', html.substring(0, 500) + '...');
+        
+        const flashMessages = extractFlashMessagesFromHTML(html);
+        console.log('Mensajes de error extraídos:', flashMessages);
+        
+        if (flashMessages.length > 0) {
+            const errorMessage = flashMessages[0];
+            handleProcessingError(errorMessage.message, errorMessage.type);
+        } else {
+            handleGenericHttpError(response.status);
+        }
+    }).catch(textError => {
+        console.error('Error al procesar respuesta HTML:', textError);
+        handleGenericHttpError(response.status);
+    });
+}
+
+// Función para manejar errores de red - MODIFICADA PARA CANCELACIÓN
+function handleNetworkError(error) {
+    console.error('Error de red:', error);
+    let errorMessage = 'Error de conexión. Verifica tu conexión a internet e intenta nuevamente.';
+    let messageType = 'danger';
+    
+    if (error.name === 'AbortError') {
+        errorMessage = 'Generación de reporte cancelada';
+        messageType = 'warning';
+    } else if (error.name === 'TypeError') {
+        errorMessage = 'No se pudo conectar con el servidor. Verifica tu conexión.';
+    } else if (error.message.includes('timeout')) {
+        errorMessage = 'La conexión tardó demasiado tiempo. Intenta con un archivo más pequeño.';
+    }
+    
+    handleProcessingError(errorMessage, messageType);
+}
+
+// Función mejorada para enviar formulario con AJAX - MODIFICADA PARA CANCELACIÓN
 function submitFormWithAjax() {
     const formData = new FormData(uploadForm);
     
-    fetch('/subir_csv', {
+    // ** CREAR ABORTCONTROLLER PARA CANCELACIÓN **
+    abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), CONFIG.SAFETY_TIMEOUT);
+    
+    currentRequest = fetch('/subir_csv', {
         method: 'POST',
-        body: formData
+        body: formData,
+        signal: abortController.signal // ** IMPORTANTE: Agregar signal **
     })
     .then(response => {
+        clearTimeout(timeoutId);
         console.log('Respuesta del servidor:', response.status, response.statusText);
         
         if (response.ok) {
@@ -469,17 +634,13 @@ function submitFormWithAjax() {
             
             if (contentDisposition && contentDisposition.includes('attachment')) {
                 return response.blob().then(blob => {
+                    // Validar que el blob tenga contenido
+                    if (blob.size === 0) {
+                        throw new Error('El archivo descargado está vacío');
+                    }
+                    
                     completeProgress();
-                    
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = extractFilenameFromHeader(contentDisposition) || 'reporte_impresiones.xlsx';
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    
+                    downloadBlob(blob, contentDisposition);
                     showMessage('¡Reporte generado y descargado exitosamente!', 'success');
                     
                     setTimeout(() => {
@@ -487,52 +648,20 @@ function submitFormWithAjax() {
                     }, 2000);
                 });
             } else {
-                return response.text().then(html => {
-                    console.log('HTML recibido:', html.substring(0, 500) + '...');
-                    
-                    const flashMessages = extractFlashMessagesFromHTML(html);
-                    console.log('Mensajes flash extraídos:', flashMessages);
-                    
-                    if (flashMessages.length > 0) {
-                        // CAMBIO CLAVE: Solo mostrar el PRIMER mensaje de error
-                        const firstMessage = flashMessages[0];
-                        handleProcessingError(firstMessage.message, firstMessage.type);
-                    } else {
-                        window.location.reload();
-                    }
-                });
+                return handleHTMLResponse(response);
             }
         } else {
-            return response.text().then(html => {
-                console.log('HTML de error recibido:', html.substring(0, 500) + '...');
-                
-                const flashMessages = extractFlashMessagesFromHTML(html);
-                console.log('Mensajes de error extraídos:', flashMessages);
-                
-                if (flashMessages.length > 0) {
-                    // CAMBIO CLAVE: Solo mostrar el PRIMER mensaje de error
-                    const errorMessage = flashMessages[0];
-                    handleProcessingError(errorMessage.message, errorMessage.type);
-                } else {
-                    handleGenericHttpError(response.status);
-                }
-            }).catch(textError => {
-                console.error('Error al procesar respuesta HTML:', textError);
-                handleGenericHttpError(response.status);
-            });
+            return handleErrorResponse(response);
         }
     })
     .catch(error => {
-        console.error('Error de red:', error);
-        let errorMessage = 'Error de conexión. Verifica tu conexión a internet e intenta nuevamente.';
-        
-        if (error.name === 'TypeError') {
-            errorMessage = 'No se pudo conectar con el servidor. Verifica tu conexión.';
-        } else if (error.message.includes('timeout')) {
-            errorMessage = 'La conexión tardó demasiado tiempo. Intenta con un archivo más pequeño.';
-        }
-        
-        handleProcessingError(errorMessage, 'danger');
+        clearTimeout(timeoutId);
+        handleNetworkError(error);
+    })
+    .finally(() => {
+        // ** LIMPIAR REFERENCIAS AL COMPLETAR **
+        abortController = null;
+        currentRequest = null;
     });
 }
 
@@ -561,7 +690,7 @@ function handleProcessingError(errorMessage, type = 'danger') {
     clearProgressTimers();
     hideLoadingState();
     
-    // CAMBIO CLAVE: Limpiar TODOS los mensajes antes de mostrar el nuevo
+    // Limpiar TODOS los mensajes antes de mostrar el nuevo
     flashManager.clearAll(false); // No limpiar persistentes
     
     // Para errores de encabezados, mostrar solo el mensaje simple de advertencia
@@ -569,7 +698,7 @@ function handleProcessingError(errorMessage, type = 'danger') {
         showMessage('Nota: Asegúrese de que el CSV tenga los encabezados correctos', 'warning', true, false);
     } else {
         // Para otros errores, mostrar el mensaje original
-        showMessage(errorMessage, 'danger', true, false);
+        showMessage(errorMessage, type, true, false);
     }
     
     formSubmitted = false;
@@ -589,8 +718,9 @@ function completeProgress() {
     clearProgressTimers();
     
     progressBar.style.width = '100%';
+    progressBar.setAttribute('aria-valuenow', '100');
     const buttonText = submitBtn.querySelector('.button-text');
-    buttonText.textContent = '¡Proceso completado!';
+    if (buttonText) buttonText.textContent = '¡Proceso completado!';
     
     setTimeout(() => {
         hideLoadingState();
@@ -604,17 +734,39 @@ function resetForm() {
     flashManager.clearByType('success');
 }
 
-// Detectar cuando la página se recarga o cambia (procesamiento exitoso)
-window.addEventListener('beforeunload', () => {
+// Función de limpieza de recursos - MEJORADA
+function cleanup() {
+    if (flashManager) {
+        flashManager.clearAllTimers();
+    }
     clearProgressTimers();
-});
+    
+    // ** CANCELAR PETICIÓN ACTIVA SI EXISTE **
+    if (abortController) {
+        abortController.abort();
+        abortController = null;
+    }
+    currentRequest = null;
+}
+
+// Detectar cuando la página se recarga o cambia (procesamiento exitoso)
+window.addEventListener('beforeunload', cleanup);
 
 // Detectar cuando la página se oculta (navegación exitosa)
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        clearProgressTimers();
+        cleanup();
     }
 });
 
-window.addEventListener('dragover', (e) => e.preventDefault());
-window.addEventListener('drop', (e) => e.preventDefault());
+// Función para prevenir drag & drop global
+function preventGlobalDragDrop(e) {
+    e.preventDefault();
+}
+
+// Prevenir drag & drop global de manera más eficiente
+if (!window.dragDropListenersAdded) {
+    window.addEventListener('dragover', preventGlobalDragDrop);
+    window.addEventListener('drop', preventGlobalDragDrop);
+    window.dragDropListenersAdded = true;
+}

@@ -215,3 +215,18 @@ h4.text-center {
 .alert:not(.flash-message):not(:first-child) {
     display: none !important;
 }
+
+.btn-cancel {
+            background-color: #dc3545;
+            border-color: #dc3545;
+            color: white;
+        }
+.btn-cancel:hover {
+            background-color: #c82333;
+            border-color: #bd2130;
+            color: white;
+}
+
+.hide {
+  display: none !important;
+}

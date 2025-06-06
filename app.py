@@ -371,7 +371,7 @@ def subir_csv():
                 
                 return send_file(
                     output,
-                    download_name="reporte_generado.xlsx",
+                    download_name="Reporte de Impresiones.xlsx",
                     as_attachment=True,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 )

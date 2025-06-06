@@ -54,9 +54,8 @@
             </div>
         </div>
 
-        <!-- Contenedor de mensajes flash mejorado -->
         <div id="flashMessages" class="flash-messages-container">
-            <!-- Los mensajes aparecerán aquí dinámicamente -->
+
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -100,6 +99,14 @@
                 </div>
             </div>
 
+            <!-- Botones durante la carga -->
+            <div class="loading-buttons mb-2">
+                <button type="button" class="btn btn-cancel-secondary d-none w-100" id="cancelBtn">
+                    <i class="bi bi-x-circle me-1"></i>
+                    Cancelar
+                </button>
+            </div>
+
             <!-- Botón de envío -->
             <button type="submit" class="btn btn-primary w-100 mb-2" id="submitBtn">
                 <i class="bi bi-file-earmark-arrow-up me-1"></i>
@@ -107,7 +114,6 @@
                 <span class="spinner-border spinner-border-sm ms-2" role="status" style="display: none;"></span>
             </button>
         </form>
-
         
         <!-- Botón de logout -->
         <button type="button" class="btn btn-danger w-100" id="logoutBtn">
