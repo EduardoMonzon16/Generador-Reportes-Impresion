@@ -1,4 +1,4 @@
-""" 
+"""
 Aplicación Flask para procesamiento de reportes de impresión.
 
 Este módulo contiene una aplicación web que permite a los usuarios
