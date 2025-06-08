@@ -1,6 +1,5 @@
 /**
  * Sistema de carga y procesamiento de archivos CSV
- * Reorganizado con estructura modular y mejores prácticas
  */
 
 // ===================================================================
@@ -27,7 +26,6 @@ let elements = {};
 let progressInterval = null;
 let safetyTimeout = null;
 let formSubmitted = false;
-let currentRequest = null;
 let abortController = null;
 let flashManager = null;
 
@@ -55,7 +53,6 @@ class FlashMessagesManager {
             this.setupAutoDismiss(alertDiv, delay);
         }
 
-        // Animación de entrada
         setTimeout(() => alertDiv.classList.add('show'), 10);
         return alertDiv;
     }
@@ -98,7 +95,6 @@ class FlashMessagesManager {
         const timer = setTimeout(() => this.dismiss(alertElement), delay);
         this.activeTimers.set(alertElement, timer);
 
-        // Pausar timer en hover
         alertElement.addEventListener('mouseenter', () => {
             const currentTimer = this.activeTimers.get(alertElement);
             if (currentTimer) {
@@ -107,7 +103,6 @@ class FlashMessagesManager {
             }
         });
 
-        // Reanudar timer al salir del hover
         alertElement.addEventListener('mouseleave', () => {
             const newTimer = setTimeout(() => this.dismiss(alertElement), 2000);
             this.activeTimers.set(alertElement, newTimer);
@@ -258,7 +253,7 @@ const hideLoadingState = () => {
 };
 
 // ===================================================================
-// 8. GESTIÓN DE PROGRESO
+// 8. GESTIÓN DE PROGRESO (VERSIÓN CORREGIDA)
 // ===================================================================
 
 const clearProgressTimers = () => {
@@ -275,6 +270,7 @@ const clearProgressTimers = () => {
 const startProgressSimulation = () => {
     let progress = 0;
     let currentPhase = 0;
+    let startTime = Date.now(); // Agregar timestamp de inicio
     
     const phases = [
         { end: 15, message: 'Validando archivo...', speed: 2 },
@@ -286,27 +282,6 @@ const startProgressSimulation = () => {
     
     const buttonText = elements.submitBtn.querySelector('.button-text');
     
-    setupProgressBarAccessibility(buttonText);
-    
-    progressInterval = setInterval(() => {
-        if (!formSubmitted) {
-            clearInterval(progressInterval);
-            return;
-        }
-        
-        progress = updateProgress(progress, currentPhase, phases, buttonText);
-        if (currentPhase < phases.length && progress >= phases[currentPhase].end) {
-            currentPhase++;
-        }
-        
-        updateProgressBar(progress);
-        
-    }, CONFIG.PROGRESS_INTERVAL);
-
-    setupSafetyTimeout();
-};
-
-const setupProgressBarAccessibility = (buttonText) => {
     if (buttonText && !buttonText.hasAttribute('aria-live')) {
         buttonText.setAttribute('aria-live', 'polite');
     }
@@ -315,30 +290,49 @@ const setupProgressBarAccessibility = (buttonText) => {
     elements.progressBar.setAttribute('aria-valuenow', '0');
     elements.progressBar.setAttribute('aria-valuemin', '0');
     elements.progressBar.setAttribute('aria-valuemax', '100');
-};
-
-const updateProgress = (progress, currentPhase, phases, buttonText) => {
-    if (currentPhase < phases.length) {
-        const phase = phases[currentPhase];
-        const increment = phase.speed;
-        progress = Math.min(progress + increment, phase.end);
-        
-        if (Math.floor(progress) >= phase.end - 2) {
-            if (buttonText) buttonText.textContent = phase.message;
-        }
-    } else {
-        progress = Math.min(progress + 0.1, 98);
-    }
     
-    return progress;
-};
+    // Función para actualizar el progreso basado en tiempo transcurrido
+    const updateProgressByTime = () => {
+        if (!formSubmitted) {
+            clearInterval(progressInterval);
+            return;
+        }
+        
+        const elapsedTime = Date.now() - startTime;
+        const estimatedDuration = 25000; // 25 segundos estimados para completar
+        
+        // Calcular progreso basado en tiempo (máximo 95%)
+        const timeBasedProgress = Math.min((elapsedTime / estimatedDuration) * 95, 95);
+        
+        // Usar el mayor progreso entre el calculado por fases y el basado en tiempo
+        progress = Math.max(progress, timeBasedProgress);
+        
+        // Lógica de fases (mantener la original pero mejorada)
+        if (currentPhase < phases.length) {
+            const phase = phases[currentPhase];
+            const increment = phase.speed;
+            const phaseProgress = Math.min(progress + increment, phase.end);
+            
+            // Usar el progreso más avanzado
+            progress = Math.max(progress, phaseProgress);
+            
+            if (Math.floor(progress) >= phase.end - 2) {
+                if (buttonText) buttonText.textContent = phase.message;
+            }
+        } else {
+            progress = Math.min(progress + 0.1, 98);
+        }
+        
+        if (currentPhase < phases.length && progress >= phases[currentPhase].end) {
+            currentPhase++;
+        }
+        
+        elements.progressBar.style.width = progress + '%';
+        elements.progressBar.setAttribute('aria-valuenow', Math.floor(progress));
+    };
+    
+    progressInterval = setInterval(updateProgressByTime, CONFIG.PROGRESS_INTERVAL);
 
-const updateProgressBar = (progress) => {
-    elements.progressBar.style.width = progress + '%';
-    elements.progressBar.setAttribute('aria-valuenow', Math.floor(progress));
-};
-
-const setupSafetyTimeout = () => {
     safetyTimeout = setTimeout(() => {
         if (formSubmitted && elements.submitBtn.disabled) {
             clearProgressTimers();
@@ -491,7 +485,7 @@ const submitFormWithAjax = () => {
     abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), CONFIG.SAFETY_TIMEOUT);
     
-    currentRequest = fetch('/subir_csv', {
+    fetch('/subir_csv', {
         method: 'POST',
         body: formData,
         signal: abortController.signal
@@ -509,12 +503,10 @@ const submitFormWithAjax = () => {
     .catch(handleNetworkError)
     .finally(() => {
         abortController = null;
-        currentRequest = null;
     });
 };
 
 const handleSuccessResponse = (response) => {
-    const contentType = response.headers.get('content-type');
     const contentDisposition = response.headers.get('content-disposition');
     
     if (contentDisposition?.includes('attachment')) {
@@ -606,10 +598,8 @@ const setupFormSubmitListener = () => {
 };
 
 const setupControlButtonsListeners = () => {
-    // Remover archivo
     elements.removeFileBtn.addEventListener('click', hideFileInfo);
 
-    // Cancelar
     if (elements.cancelBtn) {
         elements.cancelBtn.addEventListener('click', () => {
             if (abortController && formSubmitted) {
@@ -621,7 +611,6 @@ const setupControlButtonsListeners = () => {
         });
     }
 
-    // Logout
     elements.logoutBtn.addEventListener('click', handleLogout);
 };
 
@@ -660,7 +649,7 @@ const setupEventListeners = () => {
 };
 
 // ===================================================================
-// 13. INICIALIZACIÓN Y LIMPIEZA
+// 13. INICIALIZACIÓN Y LIMPIEZA (VERSIÓN CORREGIDA)
 // ===================================================================
 
 const initializeDOMElements = () => {
@@ -705,30 +694,8 @@ const setupGlobalDragDropPrevention = () => {
     }
 };
 
-const cleanup = () => {
-    flashManager?.clearAllTimers();
-    clearProgressTimers();
-    
-    // NO cancelar la petición automáticamente cuando se cambia de pestaña
-    // Solo limpiar referencias sin abortar
-    if (abortController) {
-        // Solo cancelar si se está cerrando la ventana completamente
-        if (document.visibilityState === 'hidden' && !formSubmitted) {
-            abortController.abort();
-        }
-        // No limpiar abortController si hay una descarga en proceso
-    }
-    
-    // Solo limpiar currentRequest si no hay descarga activa
-    if (!formSubmitted) {
-        currentRequest = null;
-    }
-};
-
 const setupCleanupListeners = () => {
-    // Solo limpiar cuando se cierre la ventana completamente
-    window.addEventListener('beforeunload', (e) => {
-        // Cancelar solo si hay una operación en curso y se está cerrando la ventana
+    window.addEventListener('beforeunload', () => {
         if (formSubmitted && abortController) {
             abortController.abort();
         }
@@ -736,20 +703,17 @@ const setupCleanupListeners = () => {
         clearProgressTimers();
     });
     
-    // Modificar el listener de visibilitychange
+    // CORREGIDO: No limpiar timers de progreso al cambiar de pestaña
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
-            // Solo limpiar timers, NO cancelar la petición
+            // Solo limpiar timers de flash messages, NO los de progreso
             flashManager?.clearAllTimers();
-            clearProgressTimers();
-            
-            // Opcional: Mostrar mensaje informativo si hay descarga en curso
-            if (formSubmitted && !document.hidden) {
-                console.log('Descarga en proceso, no se cancela por cambio de pestaña');
+            // NO llamar clearProgressTimers() aquí para que continúe el progreso
+        } else {
+            // Cuando la pestaña vuelve a ser visible, verificar si hay un proceso activo
+            if (formSubmitted && elements.submitBtn.disabled) {
+                console.log('Pestaña visible nuevamente - proceso activo detectado');
             }
-        } else if (document.visible && formSubmitted) {
-            // Cuando se regresa a la pestaña, verificar si la descarga sigue activa
-            console.log('Regresando a la pestaña con descarga activa');
         }
     });
 };
@@ -759,7 +723,6 @@ const setupCleanupListeners = () => {
 // ===================================================================
 
 const setupLoginFunctionality = () => {
-    // Toggle para mostrar/ocultar contraseña
     const passwordInput = document.getElementById('password');
     const togglePassword = document.getElementById('togglePassword');
     
@@ -768,13 +731,11 @@ const setupLoginFunctionality = () => {
             const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
             passwordInput.setAttribute('type', type);
             
-            // Cambiar icono
             this.classList.toggle('bi-eye');
             this.classList.toggle('bi-eye-slash');
         });
     }
 
-    // Manejo de envío del formulario de login
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {
         const submitBtn = loginForm.querySelector('button[type="submit"]');
@@ -782,30 +743,24 @@ const setupLoginFunctionality = () => {
         const buttonText = submitBtn.querySelector('.button-text');
         
         loginForm.addEventListener('submit', function() {
-            // Mostrar spinner y deshabilitar botón
             if (spinner) spinner.classList.remove('d-none');
             if (buttonText) buttonText.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>Verificando...';
             submitBtn.disabled = true;
-            
-            // Simular delay mínimo para UX
-            setTimeout(() => {
-                // El formulario se enviará normalmente
-            }, 500);
         });
     }
 
-    // Auto-dismiss para alertas de éxito después de 3 segundos
     const successAlerts = document.querySelectorAll('.alert-success');
     successAlerts.forEach(alert => {
         setTimeout(() => {
-            if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
-                const bsAlert = new bootstrap.Alert(alert);
-                bsAlert.close();
-            }
+            alert.classList.remove('show');
+            setTimeout(() => {
+                if (alert.parentNode) {
+                    alert.remove();
+                }
+            }, 150);
         }, 3000);
     });
 
-    // Focus en el primer campo con error o el campo usuario
     const firstInput = document.querySelector('.is-invalid') || document.getElementById('usuario');
     if (firstInput) {
         firstInput.focus();
@@ -817,19 +772,13 @@ const setupLoginFunctionality = () => {
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Inicialización en orden
     initializeDOMElements();
     flashManager = new FlashMessagesManager();
     processExistingAlerts();
     setupEventListeners();
     setupGlobalDragDropPrevention();
     setupCleanupListeners();
-    
-    // Configurar funcionalidad de login
     setupLoginFunctionality();
     
     console.log('Sistema de carga CSV inicializado correctamente');
 });
-
-
-

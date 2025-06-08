@@ -1,4 +1,4 @@
-"""
+""" 
 Aplicación Flask para procesamiento de reportes de impresión.
 
 Este módulo contiene una aplicación web que permite a los usuarios
@@ -7,13 +7,14 @@ generando archivos Excel con tablas dinámicas y filtros aplicados.
 """
 import os
 import io
+import sys
 import tempfile
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash
 import mysql.connector
-from mysql.connector import Error
 import pandas as pd
 import chardet
 import xlwings as xw
+from dotenv import load_dotenv
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.styles import Font
 
@@ -22,16 +23,35 @@ from openpyxl.styles import Font
 # =============================================================================
 
 app = Flask(__name__)
-app.secret_key = 'clave_secreta_para_sesiones'
 
-# Configuración de base de datos
+# Cargar variables de entorno desde archivo .env
+load_dotenv()
+
+# Configurar secret_key desde variables de entorno
+app.secret_key = os.getenv('SECRET_KEY', 'clave_secreta_para_sesiones')
+
+# Configuración de base de datos - CORREGIDA
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Universitario12#',
-    'database': 'systembd',
-    'port': 3306
+    'host': os.getenv('DB_HOST'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME'),
+    'port': int(os.getenv('DB_PORT') or '3306'),
+    'charset': 'utf8mb4',
+    'autocommit': True,
+    'connection_timeout': 10,
+    'auth_plugin': 'mysql_native_password'
 }
+
+# Verificar que las variables de entorno estén configuradas
+required_env_vars = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+
+if missing_vars:
+    print(f"ERROR: Las siguientes variables de entorno no están "
+          f"configuradas: {', '.join(missing_vars)}")
+    print("Por favor, configura tu archivo .env")
+    sys.exit(1)
 
 # Configuración de filtros para reportes
 FILTROS_CONFIG = {
@@ -57,25 +77,36 @@ ENCABEZADOS_REQUERIDOS = [
 ]
 
 # =============================================================================
-# FUNCIONES DE BASE DE DATOS
+# FUNCIONES DE BASE DE DATOS - MEJORADAS
 # =============================================================================
 
-
-def conectar():
+def conectar_db():
     """Establece conexión con la base de datos MySQL."""
-    return mysql.connector.connect(**DB_CONFIG)
+    try:
+        connection = mysql.connector.connect(**DB_CONFIG)
+        if connection.is_connected():
+            return connection
+        return None
+    except mysql.connector.Error as error:
+        print(f"Error al conectar a la base de datos: {error}")
+        return None
 
 
 def validar_credenciales(usuario, password):
     """Valida las credenciales del usuario contra la base de datos."""
+    conexion = None
+    cursor = None
+
     try:
-        conexion = conectar()
-        cursor = conexion.cursor()
+        conexion = conectar_db()
+        if not conexion:
+            flash('Error de conexión con la base de datos.', 'danger')
+            return False
+
+        cursor = conexion.cursor(buffered=True)
         sql = "SELECT Contraseña FROM usuarios WHERE Nombre = %s"
         cursor.execute(sql, (usuario,))
         resultado = cursor.fetchone()
-        cursor.close()
-        conexion.close()
 
         if resultado:
             contraseña_en_bd = resultado[0]
@@ -84,14 +115,22 @@ def validar_credenciales(usuario, password):
 
     except mysql.connector.InterfaceError as e:
         print(f"Error de interfaz de base de datos: {e}")
-        flash('Error inesperado. Por favor, contacta al administrador.',
-              'danger')
+        flash('Error inesperado. Por favor, contacta al administrador.', 'danger')
         return False
-    except Error as e:
+    except mysql.connector.Error as e:
         print(f"Error en la conexión a la base de datos: {e}")
-        flash('Error de conexión con la base de datos. Intenta más tarde.',
-              'danger')
+        flash('Error de conexión con la base de datos. Intenta más tarde.', 'danger')
         return False
+    except (ValueError, TypeError) as e:
+        print(f"Error de validación de datos: {e}")
+        flash('Error inesperado. Por favor, contacta al administrador.', 'danger')
+        return False
+    finally:
+        # Cerrar cursor y conexión para evitar memory leaks
+        if cursor:
+            cursor.close()
+        if conexion and conexion.is_connected():
+            conexion.close()
 
 # =============================================================================
 # FUNCIONES DE PROCESAMIENTO DE DATOS
@@ -126,7 +165,7 @@ def validar_encabezados_csv(df):
 
 
 def procesar_dataframe(df):
-    """Procesa el DataFrame agregando la columna de impresiones y 
+    """Procesa el DataFrame agregando la columna de impresiones y
     eliminando columnas innecesarias."""
     # Agregar la columna "Impresiones" en la posición E (índice 4)
     if len(df.columns) >= 4:
@@ -197,7 +236,7 @@ def convertir_a_tabla(sheet, dataframe, nombre_tabla):
         end_col = chr(64 + max_col)
     else:
         end_col = (chr(64 + (max_col - 1) // 26) +
-               chr(65 + (max_col - 1) % 26))
+                   chr(65 + (max_col - 1) % 26))
 
     rango_tabla = f"A1:{end_col}{max_row}"
 
