@@ -709,22 +709,111 @@ const cleanup = () => {
     flashManager?.clearAllTimers();
     clearProgressTimers();
     
+    // NO cancelar la petición automáticamente cuando se cambia de pestaña
+    // Solo limpiar referencias sin abortar
     if (abortController) {
-        abortController.abort();
-        abortController = null;
+        // Solo cancelar si se está cerrando la ventana completamente
+        if (document.visibilityState === 'hidden' && !formSubmitted) {
+            abortController.abort();
+        }
+        // No limpiar abortController si hay una descarga en proceso
     }
-    currentRequest = null;
+    
+    // Solo limpiar currentRequest si no hay descarga activa
+    if (!formSubmitted) {
+        currentRequest = null;
+    }
 };
 
 const setupCleanupListeners = () => {
-    window.addEventListener('beforeunload', cleanup);
+    // Solo limpiar cuando se cierre la ventana completamente
+    window.addEventListener('beforeunload', (e) => {
+        // Cancelar solo si hay una operación en curso y se está cerrando la ventana
+        if (formSubmitted && abortController) {
+            abortController.abort();
+        }
+        flashManager?.clearAllTimers();
+        clearProgressTimers();
+    });
+    
+    // Modificar el listener de visibilitychange
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden) cleanup();
+        if (document.hidden) {
+            // Solo limpiar timers, NO cancelar la petición
+            flashManager?.clearAllTimers();
+            clearProgressTimers();
+            
+            // Opcional: Mostrar mensaje informativo si hay descarga en curso
+            if (formSubmitted && !document.hidden) {
+                console.log('Descarga en proceso, no se cancela por cambio de pestaña');
+            }
+        } else if (document.visible && formSubmitted) {
+            // Cuando se regresa a la pestaña, verificar si la descarga sigue activa
+            console.log('Regresando a la pestaña con descarga activa');
+        }
     });
 };
 
 // ===================================================================
-// 14. PUNTO DE ENTRADA PRINCIPAL
+// 14. FUNCIONALIDAD DE LOGIN
+// ===================================================================
+
+const setupLoginFunctionality = () => {
+    // Toggle para mostrar/ocultar contraseña
+    const passwordInput = document.getElementById('password');
+    const togglePassword = document.getElementById('togglePassword');
+    
+    if (passwordInput && togglePassword) {
+        togglePassword.addEventListener('click', function() {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            
+            // Cambiar icono
+            this.classList.toggle('bi-eye');
+            this.classList.toggle('bi-eye-slash');
+        });
+    }
+
+    // Manejo de envío del formulario de login
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        const submitBtn = loginForm.querySelector('button[type="submit"]');
+        const spinner = submitBtn.querySelector('.spinner-border');
+        const buttonText = submitBtn.querySelector('.button-text');
+        
+        loginForm.addEventListener('submit', function() {
+            // Mostrar spinner y deshabilitar botón
+            if (spinner) spinner.classList.remove('d-none');
+            if (buttonText) buttonText.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>Verificando...';
+            submitBtn.disabled = true;
+            
+            // Simular delay mínimo para UX
+            setTimeout(() => {
+                // El formulario se enviará normalmente
+            }, 500);
+        });
+    }
+
+    // Auto-dismiss para alertas de éxito después de 3 segundos
+    const successAlerts = document.querySelectorAll('.alert-success');
+    successAlerts.forEach(alert => {
+        setTimeout(() => {
+            if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            }
+        }, 3000);
+    });
+
+    // Focus en el primer campo con error o el campo usuario
+    const firstInput = document.querySelector('.is-invalid') || document.getElementById('usuario');
+    if (firstInput) {
+        firstInput.focus();
+    }
+};
+
+// ===================================================================
+// 15. PUNTO DE ENTRADA PRINCIPAL
 // ===================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -736,7 +825,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupGlobalDragDropPrevention();
     setupCleanupListeners();
     
+    // Configurar funcionalidad de login
+    setupLoginFunctionality();
+    
     console.log('Sistema de carga CSV inicializado correctamente');
 });
+
 
 

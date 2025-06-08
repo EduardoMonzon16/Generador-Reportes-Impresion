@@ -2,7 +2,7 @@
 import os
 import io
 import tempfile
-from flask import Flask, render_template, request, redirect, url_for, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash
 import mysql.connector
 from mysql.connector import Error
 import pandas as pd
@@ -22,7 +22,7 @@ DB_CONFIG = {
     'user': 'root',
     'password': 'Universitario12#',
     'database': 'systembd',
-    'port': 3307
+    'port': 3306
 }
 
 # Configuración de filtros para reportes
@@ -73,7 +73,12 @@ def validar_credenciales(usuario, password):
         return False
     
     except Error as e:
-        print(f"Error en la conexión: {e}")
+        print(f"Error en la conexión a la base de datos: {e}")
+        flash('Error de conexión con la base de datos. Intenta más tarde.', 'danger')
+        return False
+    except Exception as e:
+        print(f"Error inesperado: {e}")
+        flash('Error inesperado. Por favor, contacta al administrador.', 'danger')
         return False
 
 # =============================================================================
@@ -321,11 +326,16 @@ def login():
         usuario = request.form['usuario']
         password = request.form['password']
 
+        # Validaciones básicas
+        if not usuario or not password:
+            return render_template('login.html')
+
         if validar_credenciales(usuario, password):
             session['usuario'] = usuario
             return redirect(url_for('reportes'))
         else:
-            return redirect(url_for('login'))
+            flash('Usuario o contraseña incorrectos. Por favor, intenta nuevamente.', 'danger')
+            return render_template('login.html')
 
     return render_template('login.html')
 
