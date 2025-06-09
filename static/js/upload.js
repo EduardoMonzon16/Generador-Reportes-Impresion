@@ -253,7 +253,7 @@ const hideLoadingState = () => {
 };
 
 // ===================================================================
-// 8. GESTIÓN DE PROGRESO (VERSIÓN CORREGIDA)
+// 8. GESTIÓN DE PROGRESO
 // ===================================================================
 
 const clearProgressTimers = () => {
@@ -270,7 +270,6 @@ const clearProgressTimers = () => {
 const startProgressSimulation = () => {
     let progress = 0;
     let currentPhase = 0;
-    let startTime = Date.now(); // Agregar timestamp de inicio
     
     const phases = [
         { end: 15, message: 'Validando archivo...', speed: 2 },
@@ -291,30 +290,16 @@ const startProgressSimulation = () => {
     elements.progressBar.setAttribute('aria-valuemin', '0');
     elements.progressBar.setAttribute('aria-valuemax', '100');
     
-    // Función para actualizar el progreso basado en tiempo transcurrido
-    const updateProgressByTime = () => {
+    progressInterval = setInterval(() => {
         if (!formSubmitted) {
             clearInterval(progressInterval);
             return;
         }
         
-        const elapsedTime = Date.now() - startTime;
-        const estimatedDuration = 25000; // 25 segundos estimados para completar
-        
-        // Calcular progreso basado en tiempo (máximo 95%)
-        const timeBasedProgress = Math.min((elapsedTime / estimatedDuration) * 95, 95);
-        
-        // Usar el mayor progreso entre el calculado por fases y el basado en tiempo
-        progress = Math.max(progress, timeBasedProgress);
-        
-        // Lógica de fases (mantener la original pero mejorada)
         if (currentPhase < phases.length) {
             const phase = phases[currentPhase];
             const increment = phase.speed;
-            const phaseProgress = Math.min(progress + increment, phase.end);
-            
-            // Usar el progreso más avanzado
-            progress = Math.max(progress, phaseProgress);
+            progress = Math.min(progress + increment, phase.end);
             
             if (Math.floor(progress) >= phase.end - 2) {
                 if (buttonText) buttonText.textContent = phase.message;
@@ -329,9 +314,8 @@ const startProgressSimulation = () => {
         
         elements.progressBar.style.width = progress + '%';
         elements.progressBar.setAttribute('aria-valuenow', Math.floor(progress));
-    };
-    
-    progressInterval = setInterval(updateProgressByTime, CONFIG.PROGRESS_INTERVAL);
+        
+    }, CONFIG.PROGRESS_INTERVAL);
 
     safetyTimeout = setTimeout(() => {
         if (formSubmitted && elements.submitBtn.disabled) {
@@ -649,7 +633,7 @@ const setupEventListeners = () => {
 };
 
 // ===================================================================
-// 13. INICIALIZACIÓN Y LIMPIEZA (VERSIÓN CORREGIDA)
+// 13. INICIALIZACIÓN Y LIMPIEZA
 // ===================================================================
 
 const initializeDOMElements = () => {
@@ -703,17 +687,10 @@ const setupCleanupListeners = () => {
         clearProgressTimers();
     });
     
-    // CORREGIDO: No limpiar timers de progreso al cambiar de pestaña
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
-            // Solo limpiar timers de flash messages, NO los de progreso
             flashManager?.clearAllTimers();
-            // NO llamar clearProgressTimers() aquí para que continúe el progreso
-        } else {
-            // Cuando la pestaña vuelve a ser visible, verificar si hay un proceso activo
-            if (formSubmitted && elements.submitBtn.disabled) {
-                console.log('Pestaña visible nuevamente - proceso activo detectado');
-            }
+            clearProgressTimers();
         }
     });
 };
@@ -782,3 +759,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     console.log('Sistema de carga CSV inicializado correctamente');
 });
+
+
+
