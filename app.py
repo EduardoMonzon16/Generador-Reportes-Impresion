@@ -165,29 +165,47 @@ def validar_encabezados_csv(df):
 
 
 def procesar_dataframe(df):
-    """Procesa el DataFrame agregando la columna de impresiones y
-    eliminando columnas innecesarias."""
-    # Agregar la columna "Impresiones" en la posición E (índice 4)
-    if len(df.columns) >= 4:
-        # Convertir las columnas C y D a numéricas
+    """Procesa el DataFrame agregando la columna de impresiones, 
+    columna de fecha formateada y eliminando columnas innecesarias."""
+    
+    # Agregar la columna "Impresiones" en la posición F (índice 5, después de la nueva columna Mes Año)
+    if len(df.columns) >= 5:  # Ahora necesitamos al menos 5 columnas (A, B, C, D, E)
+        # Convertir las columnas C y D a numéricas (ahora índices 2 y 3)
         columna_c = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
         columna_d = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
-
+        
         # Calcular las impresiones (C * D)
         impresiones = columna_c * columna_d
-
-        # Insertar la columna "Impresiones"
-        df.insert(4, 'Impresiones', impresiones)
-
-    # Eliminar las columnas I, J, K, L (índices 8, 9, 10, 11) si existen
-    columnas_a_eliminar = [i for i in [8, 9, 10, 11] if i < len(df.columns)]
-
+        
+        # Insertar la columna "Impresiones" en la posición F (índice 5)
+        df.insert(5, 'Impresiones', impresiones)
+    
+    # Agregar columna de fecha formateada basada en la columna A
+    if len(df.columns) >= 1:
+        # Convertir la columna A a datetime
+        fechas = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+        
+        # Diccionario para traducir meses al español
+        meses_es = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        
+        # Formatear las fechas como "Marzo 2025"
+        fechas_formateadas = fechas.apply(lambda x: f"{meses_es[x.month]}-{x.year}" if pd.notna(x) else "")
+        
+        # Insertar la columna "Mes Año" en la posición B (índice 1)
+        df.insert(1, 'Mes Año', fechas_formateadas)
+    
+    # Eliminar las columnas I, J, K, L (ahora serían índices 10, 11, 12, 13 debido a las nuevas columnas)
+    columnas_a_eliminar = [i for i in [10, 11, 12, 13] if i < len(df.columns)]
+    
     # Eliminar las columnas de forma descendente
     for indice in reversed(columnas_a_eliminar):
         df = df.drop(df.columns[indice], axis=1)
-
+    
     return df
-
 
 def filtrar_dataframe(df, config):
     """Filtra el DataFrame según la configuración proporcionada."""
