@@ -193,10 +193,10 @@ def procesar_dataframe(df):
         }
         
         # Formatear las fechas como "Marzo 2025"
-        fechas_formateadas = fechas.apply(lambda x: f"{meses_es[x.month]}-{x.year}" if pd.notna(x) else "")
+        fechas_formateadas = fechas.apply(lambda x: f"{meses_es[x.month]} - {x.year}" if pd.notna(x) else "")
         
         # Insertar la columna "Mes Año" en la posición B (índice 1)
-        df.insert(1, 'Mes Año', fechas_formateadas)
+        df.insert(1, 'Mes - Año', fechas_formateadas)
     
     # Eliminar las columnas I, J, K, L (ahora serían índices 10, 11, 12, 13 debido a las nuevas columnas)
     columnas_a_eliminar = [i for i in [10, 11, 12, 13] if i < len(df.columns)]
