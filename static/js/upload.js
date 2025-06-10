@@ -1,5 +1,5 @@
 /**
- * Sistema de carga y procesamiento de archivos CSV
+ * Sistema de carga y procesamiento de archivos CSV - VERSIÓN CORREGIDA SIN CANCELACIÓN AL CAMBIAR PESTAÑA
  */
 
 // ===================================================================
@@ -181,6 +181,9 @@ const preventGlobalDragDrop = (e) => e.preventDefault();
 // ===================================================================
 
 const validateCSVFile = (file) => {
+    // Limpiar mensajes de error previos
+    flashManager.clearByType('danger');
+    
     if (!file.name.toLowerCase().endsWith('.csv')) {
         showMessage('Por favor selecciona un archivo CSV válido (.csv)', 'danger');
         return false;
@@ -248,6 +251,8 @@ const hideLoadingState = () => {
     elements.submitBtn.disabled = false;
     elements.progressContainer.style.display = 'none';
     elements.progressBar.style.width = '0%';
+    
+    elements.progressBar.setAttribute('aria-valuenow', '0');
     
     clearProgressTimers();
 };
@@ -415,15 +420,35 @@ const handleProcessingError = (errorMessage, type = 'danger') => {
     clearProgressTimers();
     hideLoadingState();
     
-    flashManager.clearAll(false);
+    flashManager.clearNonPersistent();
     
     if (errorMessage.includes('encabezados') || errorMessage.includes('estructura') || errorMessage.includes('CSV no contiene')) {
-        showMessage('Nota: Asegúrese de que el CSV tenga los encabezados correctos', 'warning', true, false);
+        setTimeout(() => {
+            showMessage('Nota: Asegúrese de que el CSV tenga los encabezados correctos', 'warning', true, false);
+        }, 100);
     } else {
         showMessage(errorMessage, type, true, false);
     }
     
     formSubmitted = false;
+};
+
+// Reset completo después de cancelar CON BORRADO DE ARCHIVO
+const resetFormAfterCancel = () => {
+    formSubmitted = false;
+    hideLoadingState();
+    clearProgressTimers();
+    
+    // Borrar el archivo seleccionado
+    hideFileInfo();
+    
+    // Limpiar mensajes flash
+    flashManager.clearAll(false);
+    
+    // Mostrar mensaje de cancelación sin persistencia
+    showMessage('Operación cancelada. Archivo removido.', 'info', true, false);
+    
+    console.log('Formulario reseteado después de cancelación - archivo borrado');
 };
 
 const handleNetworkError = (error) => {
@@ -433,7 +458,10 @@ const handleNetworkError = (error) => {
     
     if (error.name === 'AbortError') {
         errorMessage = 'Generación de reporte cancelada';
-        messageType = 'warning';
+        messageType = 'info';
+        
+        resetFormAfterCancel();
+        return;
     } else if (error.name === 'TypeError') {
         errorMessage = 'No se pudo conectar con el servidor. Verifica tu conexión.';
     } else if (error.message.includes('timeout')) {
@@ -467,7 +495,11 @@ const submitFormWithAjax = () => {
     const formData = new FormData(elements.uploadForm);
     
     abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), CONFIG.SAFETY_TIMEOUT);
+    const timeoutId = setTimeout(() => {
+        if (formSubmitted) {
+            abortController.abort();
+        }
+    }, CONFIG.SAFETY_TIMEOUT);
     
     fetch('/subir_csv', {
         method: 'POST',
@@ -484,7 +516,10 @@ const submitFormWithAjax = () => {
             return handleErrorResponse(response);
         }
     })
-    .catch(handleNetworkError)
+    .catch(error => {
+        clearTimeout(timeoutId);
+        handleNetworkError(error);
+    })
     .finally(() => {
         abortController = null;
     });
@@ -513,7 +548,13 @@ const handleSuccessResponse = (response) => {
 const resetForm = () => {
     hideFileInfo();
     formSubmitted = false;
+    
     flashManager.clearByType('success');
+    flashManager.clearByType('info');
+    
+    hideLoadingState();
+    
+    console.log('Formulario completamente reseteado');
 };
 
 // ===================================================================
@@ -564,6 +605,14 @@ const setupFormSubmitListener = () => {
     elements.uploadForm.addEventListener('submit', (e) => {
         e.preventDefault();
         
+        if (formSubmitted) {
+            showMessage('Ya hay una operación en curso. Por favor espera o cancela la operación actual.', 'warning');
+            return;
+        }
+        
+        flashManager.clearByType('danger');
+        flashManager.clearByType('warning');
+        
         if (!elements.fileInput.files || elements.fileInput.files.length === 0) {
             showMessage('Por favor, selecciona un archivo CSV antes de continuar', 'danger');
             highlightDropZone();
@@ -581,16 +630,38 @@ const setupFormSubmitListener = () => {
     });
 };
 
+const cancelOperationAndRemoveFile = () => {
+    console.log('Cancelando operación y removiendo archivo...');
+    
+    if (abortController && formSubmitted) {
+        abortController.abort();
+        return;
+    }
+    
+    if (!formSubmitted) {
+        resetFormAfterCancel();
+    }
+};
+
 const setupControlButtonsListeners = () => {
-    elements.removeFileBtn.addEventListener('click', hideFileInfo);
+    elements.removeFileBtn.addEventListener('click', () => {
+        if (formSubmitted) {
+            cancelOperationAndRemoveFile();
+        } else {
+            hideFileInfo();
+            flashManager.clearNonPersistent();
+            showMessage('Archivo removido', 'info', true, false);
+        }
+    });
 
     if (elements.cancelBtn) {
         elements.cancelBtn.addEventListener('click', () => {
             if (abortController && formSubmitted) {
+                console.log('Cancelando operación mediante botón Cancelar...');
                 abortController.abort();
-                hideLoadingState();
-                formSubmitted = false;
-                console.log('Generación cancelada por el usuario');
+            } else if (formSubmitted) {
+                console.log('Forzando cancelación mediante botón Cancelar...');
+                resetFormAfterCancel();
             }
         });
     }
@@ -633,7 +704,7 @@ const setupEventListeners = () => {
 };
 
 // ===================================================================
-// 13. INICIALIZACIÓN Y LIMPIEZA
+// 13. INICIALIZACIÓN Y LIMPIEZA - CORREGIDA
 // ===================================================================
 
 const initializeDOMElements = () => {
@@ -678,19 +749,37 @@ const setupGlobalDragDropPrevention = () => {
     }
 };
 
+// FUNCIÓN CORREGIDA: Listeners de limpieza sin interferir con el cambio de pestañas
 const setupCleanupListeners = () => {
+    // Solo limpiar cuando realmente se cierre la ventana/pestaña
     window.addEventListener('beforeunload', () => {
         if (formSubmitted && abortController) {
             abortController.abort();
         }
         flashManager?.clearAllTimers();
         clearProgressTimers();
+        formSubmitted = false;
     });
     
+    // CORREGIDO: Solo limpiar timers al cambiar de pestaña, NO mostrar mensajes de cancelación
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
+            // Solo limpiar timers cuando la pestaña se oculta
+            // NO cancelar operaciones ni mostrar mensajes
             flashManager?.clearAllTimers();
-            clearProgressTimers();
+            // NO llamar clearProgressTimers() aquí porque puede interrumpir operaciones válidas
+        }
+        // Cuando la pestaña vuelve a ser visible, no hacer nada especial
+        // Las operaciones en curso deben continuar normalmente
+    });
+    
+    // CORREGIDO: Verificar estado solo cuando la ventana se enfoca
+    window.addEventListener('focus', () => {
+        // Solo resetear si hay un estado inconsistente (botón deshabilitado sin operación)
+        if (!formSubmitted && elements.submitBtn.disabled) {
+            console.log('Detectado estado inconsistente, corrigiendo...');
+            hideLoadingState();
+            formSubmitted = false;
         }
     });
 };
@@ -757,8 +846,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setupCleanupListeners();
     setupLoginFunctionality();
     
-    console.log('Sistema de carga CSV inicializado correctamente');
+    console.log('Sistema de carga CSV inicializado correctamente - SIN CANCELACIÓN AL CAMBIAR PESTAÑA');
 });
-
-
-

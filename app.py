@@ -165,22 +165,10 @@ def validar_encabezados_csv(df):
 
 
 def procesar_dataframe(df):
-    """Procesa el DataFrame agregando la columna de impresiones, 
-    columna de fecha formateada y eliminando columnas innecesarias."""
+    """Procesa el DataFrame agregando columnas de Mes y Año por separado,
+     columna de impresiones y eliminando columnas innecesarias."""
     
-    # Agregar la columna "Impresiones" en la posición F (índice 5, después de la nueva columna Mes Año)
-    if len(df.columns) >= 5:  # Ahora necesitamos al menos 5 columnas (A, B, C, D, E)
-        # Convertir las columnas C y D a numéricas (ahora índices 2 y 3)
-        columna_c = pd.to_numeric(df.iloc[:, 2], errors='coerce').fillna(0)
-        columna_d = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0)
-        
-        # Calcular las impresiones (C * D)
-        impresiones = columna_c * columna_d
-        
-        # Insertar la columna "Impresiones" en la posición F (índice 5)
-        df.insert(5, 'Impresiones', impresiones)
-    
-    # Agregar columna de fecha formateada basada en la columna A
+    # Agregar columnas de Mes y Año basadas en la columna A
     if len(df.columns) >= 1:
         # Convertir la columna A a datetime
         fechas = pd.to_datetime(df.iloc[:, 0], errors='coerce')
@@ -192,14 +180,32 @@ def procesar_dataframe(df):
             9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
         }
         
-        # Formatear las fechas como "Marzo 2025"
-        fechas_formateadas = fechas.apply(lambda x: f"{meses_es[x.month]} - {x.year}" if pd.notna(x) else "")
+        # Extraer mes y año por separado
+        meses = fechas.apply(lambda x: meses_es[x.month] if pd.notna(x) else "")
+        años = fechas.apply(lambda x: str(x.year) if pd.notna(x) else "")
         
-        # Insertar la columna "Mes Año" en la posición B (índice 1)
-        df.insert(1, 'Mes - Año', fechas_formateadas)
+        # Insertar la columna "Mes" en la posición B (índice 1)
+        df.insert(1, 'Mes', meses)
+        
+        # Insertar la columna "Año" en la posición C (índice 2)
+        df.insert(2, 'Año', años)
     
-    # Eliminar las columnas I, J, K, L (ahora serían índices 10, 11, 12, 13 debido a las nuevas columnas)
-    columnas_a_eliminar = [i for i in [10, 11, 12, 13] if i < len(df.columns)]
+    # Agregar la columna "Impresiones" después de las nuevas columnas
+    # Ahora las columnas C y D originales están en posiciones 4 y 5
+    if len(df.columns) >= 6:  # Ahora necesitamos al menos 6 columnas (A, Mes, Año, B, C, D)
+        # Las columnas C y D originales ahora están en índices 4 y 5
+        columna_c = pd.to_numeric(df.iloc[:, 4], errors='coerce').fillna(0)
+        columna_d = pd.to_numeric(df.iloc[:, 5], errors='coerce').fillna(0)
+        
+        # Calcular las impresiones (C * D)
+        impresiones = columna_c * columna_d
+        
+        # Insertar la columna "Impresiones" en la posición 7 (después de las 6 columnas existentes)
+        df.insert(6, 'Impresiones', impresiones)
+    
+    # Eliminar las columnas I, J, K, L (ahora serían índices más altos debido a las nuevas columnas)
+    # Las columnas originales I, J, K, L ahora están en posiciones 11, 12, 13, 14
+    columnas_a_eliminar = [i for i in [11, 12, 13, 14] if i < len(df.columns)]
     
     # Eliminar las columnas de forma descendente
     for indice in reversed(columnas_a_eliminar):
@@ -221,7 +227,6 @@ def filtrar_dataframe(df, config):
 # =============================================================================
 # FUNCIONES DE EXCEL
 # =============================================================================
-
 
 def ajustar_ancho_columnas(sheet):
     """Ajusta automáticamente el ancho de las columnas en una hoja de Excel."""
@@ -318,7 +323,14 @@ def crear_tabla_dinamica(wb, sheet_datos):
         pivot_range.Columns.AutoFit()
         pivot_range.Rows.AutoFit()
 
-        # Configurar campos de la tabla dinámica
+        # Configurar campos de COLUMNAS (AÑO y MES)
+        pivot_table.PivotFields('Año').Orientation = 2  # xlColumnField
+        pivot_table.PivotFields('Año').Position = 1
+
+        pivot_table.PivotFields('Mes').Orientation = 2  # xlColumnField
+        pivot_table.PivotFields('Mes').Position = 2
+
+        # Configurar campos de FILAS (Impresora y Usuario)
         pivot_table.PivotFields('Impresora').Orientation = 1  # xlRowField
         pivot_table.PivotFields('Impresora').Position = 1
 
@@ -335,6 +347,7 @@ def crear_tabla_dinamica(wb, sheet_datos):
 
         # Expandir campos
         pivot_table.PivotFields('Impresora').ShowDetail = True
+        pivot_table.PivotFields('AÑO').ShowDetail = True
 
         return True
     except (AttributeError, KeyError, ValueError) as e:
