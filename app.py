@@ -266,7 +266,7 @@ def convertir_a_tabla(sheet, dataframe, nombre_tabla):
     # Crear tabla con estilo
     tabla = Table(displayName=nombre_tabla, ref=rango_tabla)
     style = TableStyleInfo(
-        name="TableStyleLight11",
+        name="TableStyleLight9",
         showFirstColumn=False,
         showLastColumn=False,
         showRowStripes=True,
@@ -317,7 +317,7 @@ def crear_tabla_dinamica(wb, sheet_datos):
         pivot_range = pivot_table.TableRange2
         pivot_range.Font.Name = "Calibri"
         pivot_range.Font.Size = 14
-        pivot_table.TableStyle2 = "PivotStyleLight11"
+        pivot_table.TableStyle2 = "PivotStyleLight9"
 
         # Autoajustar columnas y filas
         pivot_range.Columns.AutoFit()
