@@ -23,7 +23,7 @@ taskkill /f /im python.exe >nul 2>&1
 taskkill /f /im py.exe >nul 2>&1
 
 echo.
-echo ✅ Servidor en puerto 5001 detenido
+echo Servidor en puerto 5001 detenido
 echo ================================
 timeout /t 2 /nobreak >nul
 exit
