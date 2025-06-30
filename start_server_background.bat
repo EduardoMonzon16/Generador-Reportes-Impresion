@@ -1,5 +1,5 @@
 @echo off
-cd /d "C:\Users\eduardo.monzon\Documents\Proyectos Python Forvis Mazars\Reporte-de-Impresiones\"
+cd /d "C:\Users\eduardo.monzon\Documents\Proyectos Python Forvis Mazars\Generador-Reportes-Impresion\"
 echo Iniciando servidor...
 if exist "run_server.py" (
     py run_server.py
